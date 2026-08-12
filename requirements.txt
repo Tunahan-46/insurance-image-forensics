@@ -1,0 +1,44 @@
+# --- Cekirdek ---
+torch
+torchvision
+timm
+transformers
+open_clip_torch
+
+# --- Goruntu isleme & forensics ---
+opencv-python-headless
+Pillow
+scikit-image
+numpy
+scipy
+exifread
+piexif
+pillow-heif
+
+# --- ML & degerlendirme ---
+scikit-learn
+lightgbm
+pandas
+pyarrow
+matplotlib
+seaborn
+
+# --- Deney takibi & kalite ---
+mlflow
+hydra-core
+omegaconf
+pytest
+ruff
+black
+
+# --- Servis (Hafta 6'da gerekecek) ---
+fastapi
+uvicorn[standard]
+python-multipart
+gradio
+pydantic
+
+# --- Goruntu uretimi (Colab/Kaggle'da, sandbox'ta DEGIL) ---
+diffusers
+accelerate
+safetensors

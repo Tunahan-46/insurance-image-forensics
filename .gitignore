@@ -1,0 +1,13 @@
+@"
+.venv/
+__pycache__/
+*.pyc
+data/raw/
+data/processed/
+experiments/
+*.pt
+*.ckpt
+.ipynb_checkpoints/
+.DS_Store
+mlruns/
+"@ | Out-File -FilePath .gitignore -Encoding utf8
