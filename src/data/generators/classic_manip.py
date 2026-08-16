@@ -1,0 +1,438 @@
+"""
+M3 katmani -- klasik (AI'siz) manipulasyon (plan 4.2, tablo M3).
+
+NEDEN ONEMLI: Dolandiricinin elinde her zaman bir difuzyon modeli yok.
+Telefonundaki "kopyala-yapistir" ya da basit bir foto editoru ile yapilan
+manipulasyonlar hala en yaygin olanlardir. Ayrica bu ornekler AI izi
+TASIMAZ -- yani "difuzyon artefakti ariyorum" diyen bir dedektor bunlarda
+tamamen basarisiz olur. Bu, Hafta 5 fuzyon katmaninin varlik sebebidir.
+
+Uc alt tip:
+    copy_move  : AYNI goruntuden bir bolge kopyalanip baska yere yapistirilir
+                 (orn. bir cizigi ikinci kez gostermek)
+    splice     : BASKA bir goruntunun hasar bolgesi kesilip yapistirilir
+    bg_replace : arac korunur, arka plan baska bir sahneyle degistirilir
+                 (olay yerini uydurma)
+
+Hepsi GPU'suz, saniyeler icinde calisir. Maskeler zemin gercegidir.
+
+Calistirma:
+    python -m src.data.generators.classic_manip --manifest data/processed/manifest_v1.parquet --n 400
+"""
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from src.data.generators import GenResult
+from src.data.imageio import imread, imwrite
+from src.data.masks import (
+    changed_fraction_in_mask,
+    dilate,
+    leak_fraction_outside_mask,
+    load_mask,
+    mask_area_frac,
+    random_blob,
+    roughen,
+    sample_point_in,
+    save_mask,
+    vehicle_region,
+)
+
+DEFAULT_OUT = Path("data/raw/manipulated/classic")
+SUBTYPES = ("copy_move", "splice", "bg_replace")
+
+# KABUL KAPISI (bkz. masks.changed_fraction_in_mask):
+# Maske icindeki piksellerin en az %25'i gercekten degismis olmali.
+# Altinda kalan ornek DISKE YAZILMAZ. Gerekce: "manipule" etiketli ama
+# orijinalle ayni bir goruntu, hem goruntu-seviyesi etiketi hem de
+# piksel zemin gercegini yalanlar.
+MIN_CHANGED_IN_MASK = 0.25
+
+
+def _paste_region(
+    dst_bgr: np.ndarray,
+    src_patch: np.ndarray,
+    mask: np.ndarray,
+    center: tuple[int, int],
+    *,
+    seamless: bool = True,
+) -> np.ndarray:
+    """Maskeli bolgeyi hedefe yapistirir.
+
+    seamless=True -> cv2.seamlessClone (Poisson blending). Renk/isik
+    uyumsuzlugunu giderdigi icin gozle tespiti zorlastirir; buna karsilik
+    gradyan alaninda kendine ozgu bir iz birakir. Bu ikilik tam olarak
+    dedektorun ogrenmesini istedigimiz seydir.
+
+    seamless=False -> duz alfa harmanlama. Daha 'amator' bir saldiri;
+    veri setinde ikisinin de bulunmasi zorluk cesitliligi saglar.
+    """
+    cy, cx = center
+    if seamless:
+        try:
+            return cv2.seamlessClone(
+                src_patch, dst_bgr, (mask > 127).astype(np.uint8) * 255,
+                (cx, cy), cv2.NORMAL_CLONE,
+            )
+        except cv2.error:
+            pass  # merkez kenara cok yakinsa OpenCV atar -> alfa'ya dus
+    a = (cv2.GaussianBlur(mask, (15, 15), 0).astype(np.float32) / 255.0)[..., None]
+    return (src_patch.astype(np.float32) * a + dst_bgr.astype(np.float32) * (1 - a)).astype(np.uint8)
+
+
+def _shift_mask(mask: np.ndarray, dy: int, dx: int) -> np.ndarray:
+    M = np.float32([[1, 0, dx], [0, 1, dy]])
+    h, w = mask.shape[:2]
+    return cv2.warpAffine(mask, M, (w, h), flags=cv2.INTER_NEAREST, borderValue=0)
+
+
+def _shift_image(img: np.ndarray, dy: int, dx: int) -> np.ndarray:
+    M = np.float32([[1, 0, dx], [0, 1, dy]])
+    h, w = img.shape[:2]
+    return cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+
+
+def copy_move(
+    img_bgr: np.ndarray, damage_mask: np.ndarray | None, rng: np.random.Generator
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Ayni goruntuden bolge kopyala-yapistir.
+
+    Hasar maskesi varsa ONU kopyalariz (gercekci: var olan cizigi ikinci
+    kez gostermek). Yoksa arac uzerinden rastgele bir blob.
+
+    Zemin gercegi = YAPISTIRILAN bolge (kaynak bolge degil; kaynak orijinaldir).
+    """
+    h, w = img_bgr.shape[:2]
+    body = vehicle_region(img_bgr)
+
+    if damage_mask is not None and mask_area_frac(damage_mask) > 0.002:
+        src_mask = dilate(damage_mask, 6)
+    else:
+        pt = sample_point_in(body, rng)
+        if pt is None:
+            return None
+        src_mask = roughen(random_blob(h, w, rng=rng, center=pt, radius_frac=0.09), rng)
+
+    if mask_area_frac(src_mask) < 0.001:
+        return None
+
+    ys, xs = np.nonzero(src_mask > 127)
+    src_c = (int(ys.mean()), int(xs.mean()))
+
+    # Hedef: aracin uzerinde, kaynaktan yeterince uzak bir nokta
+    for _ in range(30):
+        dst_c = sample_point_in(body, rng)
+        if dst_c is None:
+            return None
+        dy, dx = dst_c[0] - src_c[0], dst_c[1] - src_c[1]
+        if abs(dy) + abs(dx) < 0.15 * (h + w):
+            continue  # cok yakin: fark edilmez bir 'manipulasyon' olur
+        moved_mask = _shift_mask(src_mask, dy, dx)
+        # Kaydirilmis maske goruntu disina tastiysa ise yaramaz
+        if mask_area_frac(moved_mask) < 0.8 * mask_area_frac(src_mask):
+            continue
+        moved_img = _shift_image(img_bgr, dy, dx)
+        out = _paste_region(img_bgr, moved_img, moved_mask, dst_c, seamless=rng.random() < 0.6)
+        return out, moved_mask
+    return None
+
+
+def splice(
+    img_bgr: np.ndarray,
+    donor_bgr: np.ndarray,
+    donor_mask: np.ndarray | None,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Baska bir aracin hasar bolgesini kes, bu goruntuye yapistir.
+    Plan tablo 4.1 #3: 'baska bir aracin hasar fotografini kullanma'."""
+    h, w = img_bgr.shape[:2]
+    donor_bgr = cv2.resize(donor_bgr, (w, h), interpolation=cv2.INTER_LANCZOS4)
+
+    if donor_mask is not None and mask_area_frac(donor_mask) > 0.002:
+        dm = cv2.resize(donor_mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        patch_mask = roughen(dilate(dm, 8), rng)
+    else:
+        pt = sample_point_in(vehicle_region(donor_bgr), rng)
+        if pt is None:
+            return None
+        patch_mask = roughen(random_blob(h, w, rng=rng, center=pt, radius_frac=0.10), rng)
+
+    body = vehicle_region(img_bgr)
+    for _ in range(30):
+        dst_c = sample_point_in(body, rng)
+        if dst_c is None:
+            return None
+        ys, xs = np.nonzero(patch_mask > 127)
+        if len(ys) == 0:
+            return None
+        src_c = (int(ys.mean()), int(xs.mean()))
+        dy, dx = dst_c[0] - src_c[0], dst_c[1] - src_c[1]
+        moved_mask = _shift_mask(patch_mask, dy, dx)
+        if mask_area_frac(moved_mask) < 0.8 * mask_area_frac(patch_mask):
+            continue
+        moved_donor = _shift_image(donor_bgr, dy, dx)
+        out = _paste_region(img_bgr, moved_donor, moved_mask, dst_c, seamless=rng.random() < 0.7)
+        return out, moved_mask
+    return None
+
+
+def bg_replace(
+    img_bgr: np.ndarray, bg_bgr: np.ndarray, rng: np.random.Generator
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Araci koru, arka plani degistir (olay yerini uydurma).
+
+    Zemin gercegi maskesi = ARKA PLAN (aracin TERSI). Bu, veri setindeki
+    diger senaryolarin tersi bir topolojidir: manipule alan buyuk ve
+    baglantili. Localization modelinin ikisini de gormesi onemli, aksi
+    halde 'kucuk leke ara' onyargisi ogrenir."""
+    h, w = img_bgr.shape[:2]
+    body = vehicle_region(img_bgr)
+    frac = mask_area_frac(body)
+    if not (0.10 < frac < 0.85):
+        return None  # segmentasyon guvenilmez
+
+    bg = cv2.resize(bg_bgr, (w, h), interpolation=cv2.INTER_LANCZOS4)
+    bg_mask = cv2.bitwise_not(body)
+    a = (cv2.GaussianBlur(bg_mask, (21, 21), 0).astype(np.float32) / 255.0)[..., None]
+    out = (bg.astype(np.float32) * a + img_bgr.astype(np.float32) * (1 - a)).astype(np.uint8)
+    return out, bg_mask
+
+
+def generate(
+    manifest_path: str | Path,
+    n: int,
+    *,
+    out_root: str | Path = DEFAULT_OUT,
+    seed: int = 0,
+    weights: dict[str, float] | None = None,
+    splits: list[str] | None = None,
+    resume: bool = True,
+) -> list[GenResult]:
+    """n adet klasik manipulasyon uretir. GPU gerektirmez.
+
+    splits: sadece bu split'lerdeki kaynaklardan uret (orn. ["test","val"]).
+            None ise tum havuz kullanilir.
+    """
+    from src.data.generators.inpaint_add import _damage_mask_path_from_manifest
+    from src.data.manifest import load_manifest
+
+    weights = weights or {"copy_move": 0.4, "splice": 0.4, "bg_replace": 0.2}
+    p = np.array([weights[s] for s in SUBTYPES], dtype=float)
+    p /= p.sum()
+
+    out_dir = Path(out_root)
+    (out_dir / "masks").mkdir(parents=True, exist_ok=True)
+    log_path = out_dir / "gen_log.jsonl"
+
+    df = load_manifest(manifest_path)
+    pool = df[(df["label"] == "real") & (df["launder_profile"] == "clean")].reset_index(drop=True)
+
+    # SPLIT FILTRESI -- test/val setini "besleme" icin
+    # -------------------------------------------------
+    # Uretim, kaynak havuzuyla ORANTILI dagilir. CarDD'nin kendi test
+    # bolumu kucuk oldugu icin (%9.4) test setine cok az manipulasyon
+    # duser. Olculdu: 400 uretimden test'e 38 tanesi geldi, bunun da
+    # sadece 5'i bg_replace idi.
+    #
+    # Plan Hafta 2'nin ana ciktisi "senaryo x laundering profili" matrisi.
+    # 5 ornekle bir satir doldurmak, gurultuyu sonuc diye raporlamaktir.
+    #
+    # Bu filtre ile SADECE test/val'e ek uretim yapilabilir; mevcut
+    # dosyalar resume sayesinde atlanir, bastan uretim gerekmez:
+    #     --splits test val --n 120
+    if splits:
+        before = len(pool)
+        pool = pool[pool["split"].isin(splits)].reset_index(drop=True)
+        print(f"  Split filtresi {splits}: {before} -> {len(pool)} kaynak")
+
+    if len(pool) < 2:
+        raise RuntimeError("En az 2 gercek goruntu gerekli (splice icin donor lazim).")
+
+    # DONOR AYNI SPLIT'TEN SECILIR -- OLCULMUS BIR HATANIN DUZELTMESI
+    # -----------------------------------------------------------------
+    # splice ve bg_replace iki kaynak goruntu kullanir: hedef + donor.
+    # Donor rastgele secilirse, train'deki bir fotograf test'teki bir
+    # baskasiyla eslesebilir. build_manifest_v2 bunu sizinti sayip
+    # (hakli olarak) grubu TEST'e alir. Ilk uretimde olculen sonuc:
+    #
+    #     116 grup catisti
+    #     206 gercek goruntu train/val'den test'e suruklendi
+    #     test:  splice 91 | bg_replace 41 | copy_move 19
+    #     val :  splice  6 | bg_replace  2 | copy_move 30
+    #
+    # Yani donor kullanan senaryolar test'te yigildi, val'de yok oldu.
+    # Test seti artik planlanan senaryo karisimini TEMSIL ETMIYOR ve val
+    # ile bu senaryolar icin hicbir sey ayarlanamaz.
+    #
+    # Kok neden uretimde: sizinti korumasini manifest'e birakmak yerine
+    # donoru bastan ayni split'ten secmek gerekiyordu. Boylece catisma
+    # HIC olusmaz, CarDD'nin kuratorlu bolumu bozulmaz.
+    rng = np.random.default_rng(seed)
+    split_pools: dict[str, np.ndarray] = {
+        s: np.flatnonzero((pool["split"] == s).to_numpy())
+        for s in pool["split"].unique()
+    }
+    for s, ids in split_pools.items():
+        if len(ids) < 2:
+            print(f"  UYARI: '{s}' split'inde {len(ids)} goruntu var; "
+                  f"donor gerektiren senaryolar bu split'te uretilemeyecek.")
+
+    def pick_donor(target_idx: int, target_split: str) -> int | None:
+        """Hedefle AYNI split'ten, hedeften farkli bir donor secer."""
+        cands = split_pools.get(target_split)
+        if cands is None or len(cands) < 2:
+            return None
+        for _ in range(10):
+            j = int(cands[rng.integers(0, len(cands))])
+            if j != target_idx:
+                return j
+        return None
+
+    order = rng.permutation(len(pool))
+    results: list[GenResult] = []
+    skipped = 0
+    rejected = 0
+    t0 = time.time()
+
+    for idx in order:
+        if len(results) >= n:
+            break
+        row = pool.iloc[int(idx)]
+        src_path = Path(row["path"])
+        if not src_path.exists():
+            skipped += 1
+            continue
+        img = imread(src_path)
+        if img is None:
+            skipped += 1
+            continue
+
+        dmg_path = _damage_mask_path_from_manifest(row["gen_params"])
+        H, W = img.shape[:2]
+        dmg = load_mask(dmg_path, size=(W, H)) if dmg_path and Path(dmg_path).exists() else None
+
+        subtype = SUBTYPES[int(rng.choice(len(SUBTYPES), p=p))]
+        sid = str(row["source_image_id"])
+        out_path = out_dir / f"{sid}_{subtype}.png"
+        mask_path = out_dir / "masks" / f"{sid}_{subtype}.png"
+        if resume and out_path.exists() and mask_path.exists():
+            continue
+
+        donor_sid = ""
+        if subtype == "copy_move":
+            res = copy_move(img, dmg, rng)
+        elif subtype == "splice":
+            # DONOR SECIMI KRITIK: donor da bir kaynak goruntudur.
+            # Ayni split'te kalmasi icin donor'un id'si gen_params'a yazilir
+            # ve build_manifest_v2 donor'u da grup anahtarina dahil eder.
+            j = pick_donor(int(idx), str(row["split"]))
+            if j is None:
+                skipped += 1
+                continue
+            drow = pool.iloc[j]
+            donor = imread(drow["path"])
+            if donor is None:
+                skipped += 1
+                continue
+            dpath = _damage_mask_path_from_manifest(drow["gen_params"])
+            dmask = load_mask(dpath, size=(donor.shape[1], donor.shape[0])) \
+                if dpath and Path(dpath).exists() else None
+            donor_sid = str(drow["source_image_id"])
+            res = splice(img, donor, dmask, rng)
+        else:
+            j = pick_donor(int(idx), str(row["split"]))
+            if j is None:
+                skipped += 1
+                continue
+            bg = imread(pool.iloc[j]["path"])
+            if bg is None:
+                skipped += 1
+                continue
+            donor_sid = str(pool.iloc[j]["source_image_id"])
+            res = bg_replace(img, bg, rng)
+
+        if res is None:
+            skipped += 1
+            continue
+        out_img, out_mask = res
+
+        changed = changed_fraction_in_mask(img, out_img, out_mask)
+        if changed < MIN_CHANGED_IN_MASK:
+            # Manipulasyon gorunmez kaldi (ayni renkli bolge, notr blend...).
+            # Diske YAZMA -- bkz. MIN_CHANGED_IN_MASK aciklamasi.
+            rejected += 1
+            continue
+        leak = leak_fraction_outside_mask(img, out_img, out_mask)
+
+        imwrite(out_path, out_img)
+        save_mask(out_mask, mask_path)
+
+        record = {
+            "path": str(out_path).replace("\\", "/"),
+            "mask_path": str(mask_path).replace("\\", "/"),
+            "source_path": str(src_path).replace("\\", "/"),
+            "manip_type": subtype,
+            "donor_source_image_id": donor_sid,
+            "method": "opencv",
+            "seed": seed,
+            "mask_area_frac": round(mask_area_frac(out_mask), 5),
+            "changed_frac_in_mask": round(changed, 4),
+            "leak_frac_outside_mask": round(leak, 5),
+        }
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+        results.append(
+            GenResult(
+                path=record["path"],
+                label="manipulated",
+                source_image_id=sid,
+                manip_type=subtype,
+                generator="opencv",
+                mask_path=record["mask_path"],
+                width=W,
+                height=H,
+                gen_params=record,
+            )
+        )
+
+        if len(results) % 50 == 0:
+            print(f"  {len(results)}/{n}  ({(time.time()-t0)/len(results):.2f} sn/goruntu)")
+
+    counts = {s: sum(r.manip_type == s for r in results) for s in SUBTYPES}
+    print(
+        f"[classic] {len(results)} uretildi | {skipped} atlandi | "
+        f"{rejected} kalite kapisinda reddedildi | {counts}"
+    )
+    if rejected > len(results):
+        print(
+            "  UYARI: Reddedilen ornek sayisi uretilenden fazla. Kaynak "
+            "goruntulerin dokusu zayif olabilir (duz renkli bolgeler)."
+        )
+    return results
+
+
+def _cli() -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(description="M3: klasik manipulasyon (GPU'suz)")
+    ap.add_argument("--manifest", default="data/processed/manifest_v1.parquet")
+    ap.add_argument("--n", type=int, default=400)
+    ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--splits", nargs="*", default=None,
+                    choices=["train", "val", "test"],
+                    help="Sadece bu split'lerden uret (test/val besleme icin)")
+    ap.add_argument("--no-resume", action="store_true")
+    a = ap.parse_args()
+    generate(a.manifest, a.n, out_root=a.out, seed=a.seed,
+             splits=a.splits, resume=not a.no_resume)
+
+
+if __name__ == "__main__":
+    _cli()

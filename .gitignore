@@ -1,13 +1,51 @@
-@"
+# --- Ortamlar ---
 .venv/
+.venv-1/
 __pycache__/
 *.pyc
-data/raw/
-data/processed/
-experiments/
-*.pt
-*.ckpt
+.pytest_cache/
 .ipynb_checkpoints/
 .DS_Store
+
+# --- Veri (buyuk, yeniden uretilebilir) ---
+data/raw/
+
+# DIKKAT: asagida "data/processed/" degil "data/processed/*" var.
+# Git, ust KLASORU ignore edilmis bir dosyayi "!" ile geri alamaz --
+# klasore hic bakmaz. Icerigi ignore edip tek tek istisna tanimlamak
+# tek calisan yontem.
+data/processed/*
+
+# ISTISNA: dondurulmus test manifesti COMMIT EDILIR.
+# Plan Hafta 2 Cuma: "test setini yaz, hash'le, test_manifest.parquet
+# olarak commit'le ve bir daha ellemeyeceksin." Dosyanin git gecmisinde
+# olmasi, sonradan degistirilmedigini KANITLAR -- deneyin gecerliligi
+# buna dayanir.
+!data/processed/test_manifest_frozen.parquet
+!data/processed/test_manifest_frozen.sha256
+!data/processed/split_groups.json
+
+# --- KVKK ---
+# Islenmemis telefon fotograflari plaka/yuz icerebilir. Bunlar ASLA
+# repoya girmez; anonimlestirilmis kopyalar data/raw/own_photos/anon/
+# altindadir ve onlar da data/raw/ kurali geregi zaten ignore edilir.
+data/raw/own_photos/original/
+data/raw/own_photos/exif/
+
+# --- Model agirliklari ---
+*.pt
+*.ckpt
+*.safetensors
+
+# --- Deney takibi ---
 mlruns/
-"@ | Out-File -FilePath .gitignore -Encoding utf8
+
+# ISTISNA: deney sonuclari (kucuk JSON/markdown) versiyonlanir.
+# Plan 11.1 repo iceriginde deney sonuclarini istiyor; grafikler ve ham
+# skorlar disarida kalir, ozet metrikler girer.
+# Yine ust-klasor kurali: once icerigi ac, sonra istisna tanimla.
+experiments/*
+!experiments/*/
+experiments/*/*
+!experiments/*/results.json
+!experiments/*/table.md

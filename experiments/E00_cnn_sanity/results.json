@@ -1,0 +1,30 @@
+{
+  "detector_name": "resnet50_e0_sanity",
+  "manifest": "data/processed/manifest_v1.parquet",
+  "split": "test",
+  "results_by_launder_profile": {
+    "clean": {
+      "n_samples": 394,
+      "n_positive": 20,
+      "roc_auc": 0.36363636363636365,
+      "pr_auc": 0.041059825964171265,
+      "tpr_at_fpr_1pct": 0.0,
+      "tpr_at_fpr_5pct": 0.05,
+      "ece": 0.3859873482026746,
+      "threshold_used": 0.549192488193512,
+      "precision_at_threshold": 0.07142857142857142,
+      "recall_at_threshold": 0.05,
+      "f1_at_threshold": 0.058823529411764705,
+      "confusion_matrix": [
+        [
+          361,
+          13
+        ],
+        [
+          19,
+          1
+        ]
+      ]
+    }
+  }
+}

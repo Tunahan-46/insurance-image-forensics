@@ -1,0 +1,30 @@
+{
+  "detector_name": "metadata_rule_based_v1",
+  "manifest": "data/processed/manifest_v1.parquet",
+  "split": "test",
+  "results_by_launder_profile": {
+    "clean": {
+      "n_samples": 394,
+      "n_positive": 20,
+      "roc_auc": 0.5013368983957219,
+      "pr_auc": 0.05089058524173028,
+      "tpr_at_fpr_1pct": 0.0,
+      "tpr_at_fpr_5pct": 0.0,
+      "ece": 0.17455470737913487,
+      "threshold_used": 0.25,
+      "precision_at_threshold": 0.05089058524173028,
+      "recall_at_threshold": 1.0,
+      "f1_at_threshold": 0.09685230024213075,
+      "confusion_matrix": [
+        [
+          1,
+          373
+        ],
+        [
+          0,
+          20
+        ]
+      ]
+    }
+  }
+}
