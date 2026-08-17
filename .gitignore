@@ -37,6 +37,16 @@ data/raw/own_photos/exif/
 *.ckpt
 *.safetensors
 
+# --- Arsivler ---
+# Veriyi Colab'a tasimak icin proje kokunde zip uretiliyor (cardd_coco.zip
+# ~3 GB). Bunlar data/raw/ disinda durdugu icin oradaki kural onlari
+# yakalamaz; ayrica ignore edilmeleri sart. GitHub tek dosyada 100 MB'i
+# reddeder, ama `git add` yerel index'i o noktaya gelmeden sisirir.
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
 # --- Deney takibi ---
 mlruns/
 
