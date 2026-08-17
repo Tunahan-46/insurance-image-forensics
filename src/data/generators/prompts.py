@@ -62,6 +62,28 @@ PANEL = [
     "right quarter panel",
 ]
 
+# DAMAGE ve PANEL bagimsiz secilirse anlamsiz birlesimler cikar --
+# "cracked windshield on the passenger side door" gibi. Iki tur hasar var:
+#   1. Kendi konumunu zaten iceren hasarlar (windshield/tire/headlight PANEL
+#      listesinde YOK) -> panel eklenmez, SELF_LOCATION sadece kayit icin.
+#   2. Belirli panellerle sinirli hasarlar (cam/ayna sadece kapida, tampon
+#      hasari sadece tamponda) -> uyumlu alt kumeden secilir.
+# Listelenmeyen hasarlar (deep scratch/large dent/scraped paint) her
+# panelle uyumludur, tam PANEL havuzunu kullanir.
+DAMAGE_PANEL_MAP: dict[str, list[str] | None] = {
+    "shattered side window": ["driver side door", "passenger side door"],
+    "torn off mirror": ["driver side door", "passenger side door"],
+    "crumpled bumper": ["front bumper", "rear bumper"],
+    "broken headlight": None,
+    "cracked windshield": None,
+    "flat tire": None,
+}
+SELF_LOCATION = {
+    "broken headlight": "headlight",
+    "cracked windshield": "windshield",
+    "flat tire": "tire",
+}
+
 SETTING = [
     "in a parking lot",
     "on a city street",
@@ -169,8 +191,16 @@ def build_prompt(
 
     if damaged:
         damage = _pick(rng, DAMAGE)
-        panel = _pick(rng, PANEL)
-        subject = f"{damage} on the {panel}"
+        compatible = DAMAGE_PANEL_MAP.get(damage, PANEL)
+        if compatible is None:
+            # Kendi konumunu zaten iceren hasar (windshield/tire/headlight).
+            # "on the {panel}" eklemek PANEL listesinde olmayan bir parcaya
+            # uydurma panel atamak demek olurdu -- eklenmez.
+            panel = SELF_LOCATION[damage]
+            subject = damage
+        else:
+            panel = _pick(rng, compatible)
+            subject = f"{damage} on the {panel}"
     else:
         damage = ""
         panel = ""
@@ -256,4 +286,17 @@ if __name__ == "__main__":
     n_damaged = sum(s.has_damage for s in big)
     print(f"400 prompt: {n_damaged} hasarli / {400 - n_damaged} hasarsiz")
     print(f"Benzersiz prompt: {len({s.positive for s in big})}/400")
+
+    # Panel-hasar uyumu: kendi konumunu iceren hasarlar "on the" ALMAMALI;
+    # kisitli hasarlar SADECE kendi uyumlu panel kumesiyle gorunmeli.
+    for s in big:
+        if not s.has_damage:
+            continue
+        compatible = DAMAGE_PANEL_MAP.get(s.damage, PANEL)
+        if compatible is None:
+            assert s.panel == SELF_LOCATION[s.damage], s.positive
+            assert f"{s.damage} on the" not in s.positive, f"YANLIS PANEL EKI: {s.positive}"
+        else:
+            assert s.panel in compatible, f"UYUMSUZ PANEL: {s.positive}"
+    print("Panel-hasar uyumu: OK")
     print("\nprompts.py sanity check OK")
