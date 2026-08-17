@@ -76,6 +76,12 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         key="sdxl",
         repo="stabilityai/stable-diffusion-xl-base-1.0",
         inpaint_repo="diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+        # Son care: SDXL base checkpoint'i de inpaint hattina yuklenebilir
+        # (AutoPipelineForInpainting bunu destekler). Kalitesi inpaint'e
+        # ozel checkpoint'ten dusuktur ama M1 katmanini SIFIR ornekle
+        # birakmaktan iyidir. Kullanilirsa gen_log'daki `repo` alanindan
+        # gorulur ve dataset_card'a not dusulmelidir.
+        inpaint_fallbacks=("stabilityai/stable-diffusion-xl-base-1.0",),
         default_steps=30,
         default_guidance=6.0,
         native_size=1024,
@@ -121,17 +127,38 @@ def resolve_dtype(device: str) -> Any:
 def _try_repos(loader, repos: list[str], **kwargs):
     """Depolari sirayla dener, ilk basarili olani doner.
 
+    IKI EKSENDE YEDEKLILIK
+    ----------------------
+    1. Depo adresi: RunwayML SD 1.5 depolarini kaldirdi; tek adrese bagli
+       kalmak gece boyu surecek bir uretimi sabaha bos elle uyanmaya cevirir.
+
+    2. `variant="fp16"`: HER depo fp16 agirlik dosyasi barindirmaz. Barindirmayan
+       bir depoya variant gecirmek OSError verir ve hat komple olur -- ama
+       ayni depo variant'siz MUKEMMEL calisir (fp32 dosyalari torch_dtype ile
+       zaten fp16'ya cevrilir, sadece indirme boyutu buyur). Bu yuzden her
+       depo icin once variant'li, sonra variant'siz deneniyor.
+
     Hepsi basarisiz olursa TOPLU bir hata mesaji verir -- hangi adreslerin
-    denendigini ve her birinin neden basarisiz oldugunu gosterir. Tek bir
-    "404" mesajiyla bas basa kalmak, Colab'da saat kaybettirir.
+    ve hangi varyantlarin denendigini gosterir. Tek bir "404" mesajiyla bas
+    basa kalmak, Colab'da saat kaybettirir.
     """
     errors = []
+    has_variant = kwargs.get("variant") is not None
+
     for r in repos:
-        try:
-            print(f"  deneniyor: {r}")
-            return loader(r, **kwargs), r
-        except Exception as e:  # noqa: BLE001 - hangi hata olursa olsun sonraki adresi dene
-            errors.append(f"    {r}: {type(e).__name__}: {str(e)[:180]}")
+        attempts = [kwargs]
+        if has_variant:
+            fallback = {k: v for k, v in kwargs.items() if k != "variant"}
+            attempts.append(fallback)
+
+        for kw in attempts:
+            tag = f"{r} (variant={kw.get('variant', 'yok')})" if has_variant else r
+            try:
+                print(f"  deneniyor: {tag}")
+                return loader(r, **kw), r
+            except Exception as e:  # noqa: BLE001 - hangi hata olursa olsun sonrakini dene
+                errors.append(f"    {tag}: {type(e).__name__}: {str(e)[:180]}")
+
     raise RuntimeError(
         "Hicbir depo yuklenemedi. Denenenler:\n" + "\n".join(errors)
     )
