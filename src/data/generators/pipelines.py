@@ -104,6 +104,29 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         "notebooks/W2_colab_smoke_test ile DENE; gecmezse 'gorulmemis "
         "uretici' deneyini SD1.5-train / SDXL-test kurgusuyla yap.",
     ),
+    # GUNCELLEME (W2 duman testi): flux_schnell ucretsiz Colab'da GPU'ya
+    # binmeden, agirlik dosyalari indirilip yeniden kurulurken SISTEM
+    # RAM'i tasip oturumu COKTU (VRAM sorunu bile degil). Yukaridaki
+    # kayittaki onerilen yedek plan (sdxl'i test_only yapmak) YANLIS --
+    # sdxl ayni zamanda M1/M2 inpainting modeli; test_only'ye cevirmek
+    # generate() icindeki kontrole takilip inpaint_add'i (projenin en
+    # kritik senaryosu) tamamen durdurur. Bunun yerine sd_turbo eklendi.
+    "sd_turbo": ModelSpec(
+        key="sd_turbo",
+        repo="stabilityai/sd-turbo",
+        inpaint_repo=None,  # resmi inpaint varyanti yok; flux ile ayni sebep
+        default_steps=1,  # adversarial distillation: tek adimda calisir
+        default_guidance=0.0,  # turbo modelleri CFG kullanmaz
+        native_size=512,
+        test_only=True,
+        approx_gb=5.0,
+        note="flux_schnell ucretsiz Colab'da RAM tasirdigi icin eklenen "
+        "yedek test-only uretici. SD 2.1'in tek-adimda calisan damitilmis "
+        "surumu -- SD1.5/SDXL'den farkli bir egitim rejiminden gectigi "
+        "icin 'gorulmemis uretici' (E6) deneyi icin hala anlamli bir "
+        "kontrast saglar, kuculugu sayesinde T4'e rahat sigar (sd15 ile "
+        "ayni buyukluk mertebesinde).",
+    ),
 }
 
 TEST_ONLY_GENERATORS: set[str] = {k for k, v in MODEL_REGISTRY.items() if v.test_only}
@@ -115,6 +138,7 @@ RESOLUTION_POOL: dict[str, list[tuple[int, int]]] = {
     "sd15": [(512, 512), (512, 640), (640, 512), (768, 512), (512, 768)],
     "sdxl": [(1024, 1024), (1024, 768), (768, 1024), (1152, 896), (896, 1152)],
     "flux_schnell": [(1024, 1024), (1024, 768), (768, 1024)],
+    "sd_turbo": [(512, 512), (512, 640), (640, 512), (768, 512), (512, 768)],
 }
 
 
