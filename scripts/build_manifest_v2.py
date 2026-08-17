@@ -73,10 +73,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.data.generators.pipelines import TEST_ONLY_GENERATORS
 from src.data.manifest import (
-    add_row,
     check_generator_disjoint,
     check_split_leakage,
-    new_manifest,
+    check_unique_image_id,
+    make_row,
+    rows_to_manifest,
     save_manifest,
     summarize,
 )
@@ -264,6 +265,11 @@ def collect_manipulated() -> list[dict]:
             sid = f"cardd_{sid}" if sid and not sid.startswith(("own_", "cardd_")) else sid
             items.append({
                 "source_image_id": sid or p.stem,
+                # variant_id: TURETILMIS goruntunun kendi birincil anahtari.
+                # source_image_id kaynakla ORTAKTIR (split grubu icin), bu
+                # yuzden image_id'yi ondan uretmek cakisma yaratir --
+                # bkz. src/data/manifest.py modul basligi.
+                "variant_id": f"{key}_{p.stem}",
                 "path": str(p).replace("\\", "/"),
                 "label": "manipulated",
                 "manip_type": r.get("manip_type", key),
@@ -465,11 +471,10 @@ def main() -> None:
         keep = set(range(len(items))) - set(drop)
         items = [items[i] for i in sorted(keep)]
 
-    df = new_manifest()
-    for it in items:
-        df = add_row(
-            df,
+    df = rows_to_manifest([
+        make_row(
             source_image_id=it["source_image_id"],
+            variant_id=it.get("variant_id"),
             path=it["path"],
             label=it["label"],
             manip_type=it["manip_type"],
@@ -480,6 +485,8 @@ def main() -> None:
             launder_profile="clean",
             gen_params=it["gen_params"],
         )
+        for it in items
+    ])
 
     print("\n" + "=" * 62)
     print("DOGRULAMA")
@@ -487,13 +494,15 @@ def main() -> None:
 
     problems = check_split_leakage(df)
     problems += check_generator_disjoint(df, TEST_ONLY_GENERATORS)
+    problems += check_unique_image_id(df)
     if problems:
-        print("SIZINTI TESPIT EDILDI -- manifest KAYDEDILMEDI:")
+        print("DOGRULAMA BASARISIZ -- manifest KAYDEDILMEDI:")
         for p in problems:
             print(f"  {p}")
         sys.exit(1)
     print("Split sizintisi        : TEMIZ")
     print(f"Generator-disjoint     : TEMIZ (test-only: {TEST_ONLY_GENERATORS})")
+    print(f"image_id benzersiz     : TEMIZ ({df['image_id'].nunique()} kimlik)")
 
     multi = {k: v for k, v in groups.items() if len(v) > 1}
     print(f"Birlestirilmis grup    : {len(multi)} (splice/bg_replace donor baglari)")

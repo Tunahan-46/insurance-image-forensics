@@ -52,12 +52,15 @@ from src.data.launder import (
     launder_file,
 )
 from src.data.manifest import (
-    add_row,
     check_split_leakage,
+    check_unique_image_id,
     load_manifest,
-    new_manifest,
+    make_image_id,
+    make_row,
+    rows_to_manifest,
     save_manifest,
     summarize,
+    variant_id_of,
 )
 
 IN_MANIFEST = "data/processed/manifest_v2.parquet"
@@ -87,6 +90,20 @@ def main() -> None:
         sys.exit(1)
 
     df = load_manifest(a.manifest)
+
+    # Girdi manifesti saglam mi? Bunu BASTA kontrol et: cakisan image_id'ler
+    # ayni cikti dosyasina yazar ve hatayi ancak 30 dakika sonra fark
+    # edersin. Eski surumle uretilmis manifest'ler bu kontrole takilir.
+    stale = check_unique_image_id(df)
+    if stale:
+        print("HATA: girdi manifestinde image_id cakismasi var.")
+        for p in stale:
+            print(f"  {p}")
+        print("\nBu manifest, variant_id duzeltmesinden ONCEKI surumle")
+        print("uretilmis. Once yeniden kur (goruntu uretimi GEREKMEZ, ~1-2 dk):")
+        print("  python scripts/build_manifest_v2.py")
+        sys.exit(1)
+
     base = df[df["launder_profile"] == "clean"].reset_index(drop=True)
     base = base[base["split"].isin(a.splits)].reset_index(drop=True)
     if a.limit:
@@ -100,7 +117,10 @@ def main() -> None:
         print(f"           train/val -> {list(TRAIN_AUGMENT_PROFILES)}")
 
     out_root = Path(a.out_root)
-    out_df = new_manifest()
+    # Satirlar listede biriktirilip TEK SEFERDE DataFrame'e cevrilir.
+    # Satir basina pd.concat O(N^2) kopyalamadir; 14.800 satirda bu,
+    # laundering'in kendisinden uzun surer.
+    rows: list[dict] = []
     counts: Counter[str] = Counter()
     errors = 0
     t0 = time.time()
@@ -123,8 +143,14 @@ def main() -> None:
         # L1 metadata dedektoru icin orijinal yolu KAYBETME (plan 7.1).
         gp_dict["original_path"] = str(src).replace("\\", "/")
 
+        # Dosya adi variant_id'den uretilir, source_image_id'den DEGIL.
+        # cardd_0001 (real) ile cardd_0001_copy_move (manip) ayni
+        # source_image_id'yi paylasir; source'tan ad uretmek ikisini ayni
+        # dosyaya yazar ve etiketlerden birini yalan yapar.
+        variant = variant_id_of(row["image_id"])
+
         for profile in profiles_for_split(str(row["split"]), a.profiles):
-            image_id = f"{row['source_image_id']}__{profile}"
+            image_id = make_image_id(variant, profile)
             dst = out_root / profile / f"{image_id}.jpg"
             mask_dst = (out_root / profile / "masks" / f"{image_id}.png") if mask_src else None
 
@@ -145,9 +171,9 @@ def main() -> None:
                     errors += 1
                     continue
 
-            out_df = add_row(
-                out_df,
+            rows.append(make_row(
                 source_image_id=str(row["source_image_id"]),
+                variant_id=variant,
                 path=info["dst"],
                 label=str(row["label"]),
                 manip_type=str(row["manip_type"]),
@@ -158,7 +184,7 @@ def main() -> None:
                 split=str(row["split"]),
                 launder_profile=profile,
                 gen_params={**gp_dict, "launder_save_quality": info["save_quality"]},
-            )
+            ))
             counts[profile] += 1
 
         if (i + 1) % 200 == 0:
@@ -169,17 +195,21 @@ def main() -> None:
     print("DOGRULAMA")
     print("=" * 62)
 
-    if len(out_df) == 0:
+    if not rows:
         print("HATA: hicbir cikti uretilmedi.")
         sys.exit(1)
 
+    out_df = rows_to_manifest(rows)
+
     problems = check_split_leakage(out_df)
+    problems += check_unique_image_id(out_df)
     if problems:
-        print("SIZINTI -- manifest KAYDEDILMEDI:")
+        print("DOGRULAMA BASARISIZ -- manifest KAYDEDILMEDI:")
         for p in problems:
             print(f"  {p}")
         sys.exit(1)
     print("Split sizintisi: TEMIZ")
+    print(f"image_id benzersiz: TEMIZ ({out_df['image_id'].nunique()} kimlik)")
     print(f"Hata/atlanan   : {errors}")
     print(f"Profil basina  : {dict(counts)}")
 

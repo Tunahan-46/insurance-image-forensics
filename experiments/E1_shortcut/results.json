@@ -1,0 +1,150 @@
+{
+  "manifest": "data\\processed\\manifest_v2_laundered.parquet",
+  "profiles": [
+    "aggressive",
+    "clean",
+    "double_jpeg",
+    "screenshot",
+    "whatsapp"
+  ],
+  "thresholds": {
+    "alarm": 0.75,
+    "watch": 0.65
+  },
+  "results": {
+    "A_synthetic": {},
+    "B_manipulated": {
+      "meta": {
+        "aggressive": {
+          "auc": 0.5505166284594172,
+          "n_train": 9372,
+          "n_test": 539,
+          "train_profile_matched": false
+        },
+        "clean": {
+          "auc": 0.5525266620153494,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        },
+        "double_jpeg": {
+          "auc": 0.5610983753613077,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        },
+        "screenshot": {
+          "auc": 0.5492209043489817,
+          "n_train": 9372,
+          "n_test": 539,
+          "train_profile_matched": false
+        },
+        "whatsapp": {
+          "auc": 0.5653427024153626,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        }
+      },
+      "px8": {
+        "aggressive": {
+          "auc": 0.49347154390511316,
+          "n_train": 9372,
+          "n_test": 539,
+          "train_profile_matched": false
+        },
+        "clean": {
+          "auc": 0.4939366756370644,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        },
+        "double_jpeg": {
+          "auc": 0.49423568889331876,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        },
+        "screenshot": {
+          "auc": 0.49197647762384134,
+          "n_train": 9372,
+          "n_test": 539,
+          "train_profile_matched": false
+        },
+        "whatsapp": {
+          "auc": 0.49392006378949466,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        }
+      },
+      "px32": {
+        "aggressive": {
+          "auc": 0.47918535499518256,
+          "n_train": 9372,
+          "n_test": 539,
+          "train_profile_matched": false
+        },
+        "clean": {
+          "auc": 0.4805973620386059,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        },
+        "double_jpeg": {
+          "auc": 0.48001594737366693,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        },
+        "screenshot": {
+          "auc": 0.4722914382537626,
+          "n_train": 9372,
+          "n_test": 539,
+          "train_profile_matched": false
+        },
+        "whatsapp": {
+          "auc": 0.47991627628824884,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        }
+      },
+      "px32_rgb": {
+        "aggressive": {
+          "auc": 0.47538124190172426,
+          "n_train": 9372,
+          "n_test": 539,
+          "train_profile_matched": false
+        },
+        "clean": {
+          "auc": 0.47097910229575735,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        },
+        "double_jpeg": {
+          "auc": 0.4707465364297817,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        },
+        "screenshot": {
+          "auc": 0.47425163626698563,
+          "n_train": 9372,
+          "n_test": 539,
+          "train_profile_matched": false
+        },
+        "whatsapp": {
+          "auc": 0.4719259776072295,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        }
+      }
+    }
+  },
+  "notes": [
+    "[B_manipulated] 32x32 AUC=0.481 < 0.65: dusuk seviyeli kestirme yol ZAYIF. Veri seti bu acidan saglikli; Hafta 3'te alacagin AUC gercek sinyal sayilabilir."
+  ]
+}

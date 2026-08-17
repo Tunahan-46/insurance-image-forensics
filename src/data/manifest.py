@@ -9,7 +9,9 @@ buraya bir satır eklemektir.
 Şema (her satır = bir görüntü varyantı, yani orijinal + her laundering
 profili ayrı bir satırdır):
 
-    image_id        str    Benzersiz kimlik, örn. "cardd_0001__whatsapp"
+    image_id        str    Benzersiz kimlik = "{variant_id}__{profil}",
+                            örn. "cardd_0001__whatsapp" veya
+                            "cardd_0001_copy_move__whatsapp"
     source_image_id str    Türetildiği KÖK görüntünün kimliği (split
                             sızıntısını önlemek için kritik — bkz. 4.5)
     path            str    Dosya yolu (repo köküne göre relatif)
@@ -25,6 +27,25 @@ profili ayrı bir satırdır):
     width, height   int    Piksel boyutu
     created_at      str    ISO zaman damgası (üretim izlenebilirliği için)
     gen_params      str    JSON string: prompt/seed/steps/guidance (varsa)
+
+VARIANT_ID ve SOURCE_IMAGE_ID AYNI ŞEY DEĞİLDİR
+------------------------------------------------
+`source_image_id` bir GRUPLAMA anahtarıdır: cardd_0001 fotoğrafı ve ondan
+türetilen her manipülasyon aynı değeri taşır, çünkü hepsi aynı split'te
+kalmak zorundadır (plan 4.5, Tuzak 1).
+
+`image_id` bir BİRİNCİL ANAHTARdır: her satır benzersiz olmalıdır.
+İkisini birbirine eşitlemek şu sessiz hatayı üretiyordu:
+
+    cardd_0001 (real)             -> image_id "cardd_0001__clean"
+    cardd_0001_copy_move (manip)  -> image_id "cardd_0001__clean"   <-- AYNI
+
+apply_laundering.py dosya adını bu kimlikten ürettiği için manipüle
+görüntü, gerçek görüntünün laundered kopyasının ÜZERİNE yazıyordu:
+manifest iki satır gösterir, diskte tek dosya vardır, etiketlerden biri
+yalandır. Bu yüzden türetilmiş satırlar ayrıca bir `variant_id` taşır
+(dosya adından gelen benzersiz kimlik) ve check_unique_image_id()
+manifest diske yazılmadan önce bunu doğrular.
 """
 from __future__ import annotations
 
@@ -61,12 +82,19 @@ def new_manifest() -> pd.DataFrame:
     return pd.DataFrame({c: pd.Series(dtype="object") for c in MANIFEST_COLUMNS})
 
 
-def make_image_id(source_image_id: str, launder_profile: str) -> str:
-    return f"{source_image_id}__{launder_profile}"
+def make_image_id(variant_id: str, launder_profile: str) -> str:
+    return f"{variant_id}__{launder_profile}"
 
 
-def add_row(
-    df: pd.DataFrame,
+def variant_id_of(image_id: str) -> str:
+    """image_id'den varyant kimliğini geri çıkarır.
+
+    Profil adlarının hiçbirinde "__" yoktur (VALID_LAUNDER), bu yüzden
+    sağdan tek bölme güvenlidir."""
+    return str(image_id).rsplit("__", 1)[0]
+
+
+def make_row(
     *,
     source_image_id: str,
     path: str | Path,
@@ -79,8 +107,14 @@ def add_row(
     launder_profile: str = "clean",
     split: str = "train",
     gen_params: dict | None = None,
-) -> pd.DataFrame:
-    """Manifeste doğrulanmış tek bir satır ekler ve yeni DataFrame'i döner."""
+    variant_id: str | None = None,
+) -> dict:
+    """Doğrulanmış tek bir manifest satırını sözlük olarak döner.
+
+    `variant_id` verilmezse `source_image_id` kullanılır — kaynak
+    görüntüler için doğru davranış budur. TÜRETİLMİŞ görüntüler
+    (manipülasyon, sentetik) kendi benzersiz kimliklerini vermelidir,
+    aksi halde image_id kaynakla çakışır (bkz. modül başlığı)."""
     if label not in VALID_LABELS:
         raise ValueError(f"Geçersiz label: {label}. Beklenen: {VALID_LABELS}")
     if split not in VALID_SPLITS:
@@ -90,8 +124,8 @@ def add_row(
             f"Geçersiz launder_profile: {launder_profile}. Beklenen: {VALID_LAUNDER}"
         )
 
-    row = {
-        "image_id": make_image_id(source_image_id, launder_profile),
+    return {
+        "image_id": make_image_id(variant_id or source_image_id, launder_profile),
         "source_image_id": source_image_id,
         "path": str(path),
         "label": label,
@@ -105,7 +139,28 @@ def add_row(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "gen_params": json.dumps(gen_params or {}, ensure_ascii=False),
     }
-    return pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+
+
+def rows_to_manifest(rows: list[dict]) -> pd.DataFrame:
+    """Satır sözlüklerinden tek seferde manifest kurar.
+
+    NEDEN: `add_row` her çağrıda pd.concat yapar, yani N satır eklemek
+    O(N^2) kopyalamadır. 14.800 satırlık laundering manifesti bu yüzden
+    dakikalarca CPU yakıyordu. Toplu üretimde her zaman bu fonksiyon
+    kullanılmalı; `add_row` yalnızca birkaç satırlık işler içindir."""
+    if not rows:
+        return new_manifest()
+    return pd.DataFrame(rows, columns=MANIFEST_COLUMNS)
+
+
+def add_row(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+    """Manifeste doğrulanmış tek bir satır ekler ve yeni DataFrame'i döner.
+
+    Döngü içinde KULLANMA -- bkz. rows_to_manifest."""
+    return pd.concat(
+        [df, pd.DataFrame([make_row(**kwargs)], columns=MANIFEST_COLUMNS)],
+        ignore_index=True,
+    )
 
 
 def save_manifest(df: pd.DataFrame, path: str | Path) -> None:
@@ -136,6 +191,26 @@ def check_split_leakage(df: pd.DataFrame) -> list[str]:
         problems.append(
             f"SIZINTI: {len(leaked)} source_image_id birden fazla split'te "
             f"bulunuyor. Örnekler: {list(leaked.index[:5])}"
+        )
+    return problems
+
+
+def check_unique_image_id(df: pd.DataFrame) -> list[str]:
+    """KRİTİK KONTROL: image_id manifest'in birincil anahtarıdır.
+
+    Çakışma sessiz veri bozulmasıdır: apply_laundering.py dosya adını
+    image_id'den ürettiği için iki satır aynı diskteki dosyayı gösterir
+    ve etiketlerden biri yalan olur. Ayrıca --freeze-test hash'i
+    image_id'lerden hesaplandığı için dondurulmuş test seti de
+    doğrulanamaz hale gelir."""
+    problems = []
+    dup = df["image_id"].value_counts()
+    dup = dup[dup > 1]
+    if len(dup) > 0:
+        ex = list(dup.index[:5])
+        problems.append(
+            f"CAKISMA: {len(dup)} image_id birden fazla satirda. "
+            f"Ornekler: {ex}. Turetilmis satirlar variant_id vermelidir."
         )
     return problems
 
@@ -208,11 +283,38 @@ if __name__ == "__main__":
         launder_profile="clean",
     )
 
+    # Türetilmiş görüntü: AYNI source_image_id (split grubu korunur) ama
+    # KENDİ variant_id'si (image_id çakışmaz).
+    df = add_row(
+        df,
+        source_image_id="cardd_0001",
+        variant_id="cardd_0001_copy_move",
+        path="data/raw/manipulated/classic/cardd_0001_copy_move.png",
+        label="manipulated",
+        manip_type="copy_move",
+        width=1024,
+        height=768,
+        split="train",
+        launder_profile="clean",
+    )
+
     print(summarize(df))
     print("\n--- Sızıntı kontrolü (temiz df) ---")
     print(check_split_leakage(df) or "Sızıntı yok, temiz.")
     print("\n--- Sızıntı kontrolü (kasıtlı bozuk df) ---")
     print(check_split_leakage(df_bad))
+    print("\n--- image_id benzersizliği ---")
+    print(check_unique_image_id(df) or "Çakışma yok, temiz.")
+    assert not check_unique_image_id(df), "variant_id çakışmayı önlemeliydi"
+
+    # Toplu kurulum tek satırlık kurulumla aynı sonucu vermeli.
+    bulk = rows_to_manifest([
+        make_row(source_image_id="x", path="a.jpg", label="real", width=1, height=1),
+        make_row(source_image_id="x", variant_id="x_splice", path="b.jpg",
+                 label="manipulated", manip_type="splice", width=1, height=1),
+    ])
+    assert list(bulk.columns) == MANIFEST_COLUMNS, "toplu kurulum şemayı bozdu"
+    assert not check_unique_image_id(bulk)
 
     save_manifest(df, "data/processed/manifest_sanity_check.parquet")
     loaded = load_manifest("data/processed/manifest_sanity_check.parquet")

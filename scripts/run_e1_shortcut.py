@@ -80,30 +80,49 @@ AUC_ALARM = 0.75  # bunun ustu: ciddi kestirme yol
 AUC_WATCH = 0.65  # bunun ustu: dikkat
 
 
-def extract_features(path: str, probe: str) -> np.ndarray | None:
+# Ozellik onbellegi: path -> {probe: vektor}.
+#
+# NEDEN: ayni goruntu 4 prob x (birden fazla profil kombinasyonu) icin
+# tekrar tekrar decode ediliyordu. JPEG decode bu scriptin suresinin
+# %95'idir; problar ise ayni decode'dan turetilebilir. Tek acilista
+# hepsini cikarmak calisma suresini ~4 kat kisaltir.
+_CACHE: dict[str, dict[str, np.ndarray] | None] = {}
+
+
+def features_all_probes(path: str) -> dict[str, np.ndarray] | None:
+    """Bir goruntuyu BIR KEZ acar, dort probun ozelliklerini birden dondurur."""
+    if path in _CACHE:
+        return _CACHE[path]
     p = Path(path)
     try:
         nbytes = p.stat().st_size
         with Image.open(p) as im:
             w, h = im.size
-            if probe == "meta":
-                # HIC PIKSEL OKUNMUYOR. Sadece dosya ve boyut istatistigi.
-                return np.array([
-                    w, h, max(w, h), min(w, h), w * h,
-                    w / h, nbytes, nbytes / (w * h),
-                ], dtype=np.float64)
-
-            if probe == "px32_rgb":
-                a = np.asarray(im.convert("RGB").resize((32, 32), Image.BILINEAR),
-                               dtype=np.float64) / 255.0
-                return a.reshape(-1)
-
-            size = 8 if probe == "px8" else 32
-            a = np.asarray(im.convert("L").resize((size, size), Image.BILINEAR),
-                           dtype=np.float64) / 255.0
-            return a.reshape(-1)
+            # HIC PIKSEL OKUNMUYOR: sadece dosya ve boyut istatistigi.
+            meta = np.array([
+                w, h, max(w, h), min(w, h), w * h,
+                w / h, nbytes, nbytes / (w * h),
+            ], dtype=np.float64)
+            rgb = im.convert("RGB")
+            gray = rgb.convert("L")
+            out = {
+                "meta": meta,
+                "px8": np.asarray(gray.resize((8, 8), Image.BILINEAR),
+                                  dtype=np.float64).reshape(-1) / 255.0,
+                "px32": np.asarray(gray.resize((32, 32), Image.BILINEAR),
+                                   dtype=np.float64).reshape(-1) / 255.0,
+                "px32_rgb": np.asarray(rgb.resize((32, 32), Image.BILINEAR),
+                                       dtype=np.float64).reshape(-1) / 255.0,
+            }
     except Exception:
-        return None
+        out = None
+    _CACHE[path] = out
+    return out
+
+
+def extract_features(path: str, probe: str) -> np.ndarray | None:
+    f = features_all_probes(path)
+    return None if f is None else f[probe]
 
 
 def build_xy(df: pd.DataFrame, probe: str) -> tuple[np.ndarray, np.ndarray, list[str]]:
@@ -160,6 +179,12 @@ def run_task(df: pd.DataFrame, task: str, profiles: list[str]) -> dict:
         print("  Bu gorev icin veri yok, atlaniyor.")
         return {}
 
+    n_pos = int(sub["_pos"].sum())
+    if n_pos == 0:
+        print(f"  '{pos_label}' katmani manifest'te BOS (0 ornek) -- gorev atlaniyor.")
+        print("  Bu bir hata degil: S katmani Colab uretimi bekliyor.")
+        return {}
+
     # Egitim: train split, KARISIK profiller (augmentation gibi).
     train_all = sub[sub["split"] == "train"]
 
@@ -168,6 +193,7 @@ def run_task(df: pd.DataFrame, task: str, profiles: list[str]) -> dict:
     print("-" * len(header))
 
     results: dict[str, dict] = {}
+    unmatched: set[str] = set()
     for probe in PROBES:
         row = {}
         cells = ""
@@ -177,13 +203,35 @@ def run_task(df: pd.DataFrame, task: str, profiles: list[str]) -> dict:
             # "profil icinde" bir teshis verir -- kestirme yolun o profilde
             # HALA var olup olmadigini sorar. Dogru soru budur.
             tr = train_all[train_all["launder_profile"] == prof]
-            if len(tr) < 8:
-                tr = train_all  # o profil train'de uretilmediyse hepsini kullan
+            matched = len(tr) >= 8
+            if not matched:
+                # O profil train'de uretilmedi (screenshot/aggressive
+                # train/val'de uretilmiyor). Karisik profille egitmek
+                # ZORUNDA kaliyoruz -- ama bu artik "profil icinde
+                # kestirme yol var mi" sorusunu degil, "farkli profilde
+                # egitilmis model bu profile genellenebiliyor mu"
+                # sorusunu olcer. Sonuc * ile isaretlenir; yorum motoru
+                # bu hucreleri kanit saymaz.
+                tr = train_all
+                unmatched.add(prof)
             auc, ntr, nte = fit_and_score(tr, te, probe)
-            row[prof] = {"auc": auc, "n_train": ntr, "n_test": nte}
-            cells += f"{(f'{auc:.3f} ' + verdict(auc)) if auc is not None else '-':<14}"
+            row[prof] = {
+                "auc": auc,
+                "n_train": ntr,
+                "n_test": nte,
+                "train_profile_matched": matched,
+            }
+            txt = f"{auc:.3f}{'' if matched else '*'} {verdict(auc)}" if auc is not None else "-"
+            cells += f"{txt:<14}"
         results[probe] = row
         print(f"{probe:<12}{cells}")
+
+    if unmatched:
+        print(f"\n  * = bu profil train split'inde uretilmemis ({sorted(unmatched)});")
+        print("    model karisik profillerle egitildi. Bu hucreler PROFIL-ICI")
+        print("    kestirme yol kaniti DEGILDIR -- dagilim kaymasi da ayni")
+        print("    dususu uretebilir. Kesin olcum icin:")
+        print(f"    python scripts/apply_laundering.py --profiles {' '.join(sorted(unmatched))} --splits train")
 
     return results
 
@@ -212,15 +260,26 @@ def interpret(results: dict) -> list[str]:
                 f"planin teshis testi POZITIF. Yuksek cozunurlukte alacagin "
                 f"her AUC degeri bu kadarlik bir kestirme yol ICERIR."
             )
+        agg_matched = (px32.get("aggressive") or {}).get("train_profile_matched", True)
         if clean_px32 is not None and agg_px32 is not None:
             drop = clean_px32 - agg_px32
-            if drop >= 0.10:
+            if drop >= 0.10 and not agg_matched:
+                notes.append(
+                    f"[{task}] 32x32 AUC clean={clean_px32:.3f} -> "
+                    f"aggressive={agg_px32:.3f} (dusus {drop:.3f}) AMA aggressive "
+                    f"profili train'de uretilmedigi icin model karisik profille "
+                    f"egitildi. Bu dusus kestirme yolun kapandigini DEGIL, "
+                    f"train/test dagilim kaymasini da yansitiyor olabilir. "
+                    f"Iddiada bulunmadan once aggressive profilini train'de de "
+                    f"uret ve tekrar olc."
+                )
+            elif drop >= 0.10:
                 notes.append(
                     f"[{task}] Laundering kestirme yolu KAPATIYOR: 32x32 AUC "
                     f"clean={clean_px32:.3f} -> aggressive={agg_px32:.3f} "
-                    f"(dusus {drop:.3f}). Bu, laundering katmaninin sadece "
-                    f"'gercekcilik' degil, BILIMSEL GECERLILIK icin de gerekli "
-                    f"oldugunun kaniti."
+                    f"(dusus {drop:.3f}, ikisi de profil-ici egitim). Bu, "
+                    f"laundering katmaninin sadece 'gercekcilik' degil, "
+                    f"BILIMSEL GECERLILIK icin de gerekli oldugunun kaniti."
                 )
             elif drop <= -0.10:
                 notes.append(
@@ -292,13 +351,24 @@ def main() -> None:
     # Markdown tablo -- dogrudan W2.md'ye yapistirilabilir.
     lines = ["| gorev | prob | " + " | ".join(profiles) + " |",
              "|---|---|" + "---|" * len(profiles)]
+    starred = False
     for task, probes in results.items():
         for probe, row in probes.items():
             cells = []
             for p in profiles:
-                v = (row.get(p) or {}).get("auc")
-                cells.append(f"{v:.3f}" if v is not None else "-")
+                cell = row.get(p) or {}
+                v = cell.get("auc")
+                if v is None:
+                    cells.append("-")
+                    continue
+                mark = "" if cell.get("train_profile_matched", True) else "*"
+                starred = starred or bool(mark)
+                cells.append(f"{v:.3f}{mark}")
             lines.append(f"| {task} | {probe} | " + " | ".join(cells) + " |")
+    if starred:
+        lines.append("")
+        lines.append("`*` = bu profil train split'inde uretilmedigi icin model karisik "
+                     "profillerle egitildi; hucre profil-ici kestirme yol kaniti degildir.")
     (out / "table.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     print(f"\nKaydedildi:\n  {out}/results.json\n  {out}/table.md")

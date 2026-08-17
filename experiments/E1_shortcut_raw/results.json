@@ -1,0 +1,51 @@
+{
+  "manifest": "data\\processed\\manifest_v2.parquet",
+  "profiles": [
+    "clean"
+  ],
+  "thresholds": {
+    "alarm": 0.75,
+    "watch": 0.65
+  },
+  "results": {
+    "A_synthetic": {},
+    "B_manipulated": {
+      "meta": {
+        "clean": {
+          "auc": 0.8892986477956077,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        }
+      },
+      "px8": {
+        "clean": {
+          "auc": 0.49293996478288316,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        }
+      },
+      "px32": {
+        "clean": {
+          "auc": 0.4793514734708795,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        }
+      },
+      "px32_rgb": {
+        "clean": {
+          "auc": 0.470729924582212,
+          "n_train": 3124,
+          "n_test": 539,
+          "train_profile_matched": true
+        }
+      }
+    }
+  },
+  "notes": [
+    "[B_manipulated] META prob AUC=0.889: model TEK BIR PIKSEL OKUMADAN ayirt edebiliyor. Cozunurluk/dosya boyutu dagilimlari sinifa gore farkli. Plan 4.5 Tuzak 2/3 DOGRULANDI.",
+    "[B_manipulated] 32x32 AUC=0.479 < 0.65: dusuk seviyeli kestirme yol ZAYIF. Veri seti bu acidan saglikli; Hafta 3'te alacagin AUC gercek sinyal sayilabilir."
+  ]
+}
