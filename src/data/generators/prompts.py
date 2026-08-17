@@ -128,10 +128,19 @@ NO_DAMAGE_STATE = [
     "clean and undamaged",
 ]
 
+# W2 duman testi, SDXL gorsel incelemesi: "illustration, cartoon, anime,
+# render" zaten listede oldugu halde SDXL bir orneği duz renk bloklu,
+# keskin geometrik hatli, "hiz cizgili" vektor sanat/cizgi roman stilinde
+# uretti. Bu, plan 4.5 Tuzak 3'un baska bir varyanti: dedektor "fotograf mi
+# illustrasyon mu" gibi trivial bir gorevi cozup sahte yuksek AUC alabilir.
+# Asagidaki terimler bu spesifik sizintiyi kapatmak icin eklendi.
 NEGATIVE_PROMPT = (
     "professional, cinematic, 8k, ultra detailed, artstation, illustration, "
     "render, 3d, cartoon, anime, painting, oversaturated, studio lighting, "
-    "perfect composition, watermark, text, logo, hdr, bokeh, depth of field"
+    "perfect composition, watermark, text, logo, hdr, bokeh, depth of field, "
+    "vector art, flat design, poster, comic book, graphic novel, line art, "
+    "geometric shapes, speed lines, digital art, concept art, flat colors, "
+    "screen print, stylized, graphic design"
 )
 
 # Inpainting (M1) icin bolgesel prompt'lar -- tum sahneyi degil, sadece
