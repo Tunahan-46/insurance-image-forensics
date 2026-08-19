@@ -33,13 +33,14 @@ from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image
 
-from src.data.generators import GenResult
+from src.data.generators import GenResult, plan_by_split
 from src.data.imageio import imread, imwrite
 from src.data.generators.inpaint_add import WORK_SIZE, _blend_back, _to_work
 from src.data.generators.pipelines import MODEL_REGISTRY, load_inpaint, make_generator
@@ -83,6 +84,7 @@ def generate(
     steps: int | None = None,
     guidance: float | None = None,
     strength: float = 0.9,
+    split_quota: dict[str, float] | None = None,
     resume: bool = True,
 ) -> list[GenResult]:
     if method not in METHODS:
@@ -115,16 +117,23 @@ def generate(
         pipe = load_inpaint(model, device=device)
 
     rng = np.random.default_rng(seed)
-    order = rng.permutation(len(pool))
+    # Split kotasi -- duz rastgele gezmek test setine yalnizca ~%9.4 birakir.
+    # Bkz. src/data/generators/__init__.py: SPLIT_QUOTA
+    order, targets = plan_by_split(pool, n, rng, quota=split_quota)
+    print(f"  split hedefleri: {targets}")
     results: list[GenResult] = []
+    produced: Counter[str] = Counter()
     t0 = time.time()
     skipped = 0
     rejected = 0
 
     for idx in order:
-        if len(results) >= n:
+        if sum(produced.values()) >= n:
             break
         row = pool.iloc[int(idx)]
+        row_split = str(row["split"])
+        if produced[row_split] >= targets.get(row_split, 0):
+            continue  # bu split'in kotasi doldu
         src_path = Path(row["path"])
         dmg_path = _damage_mask_path_from_manifest(row["gen_params"])
         if not src_path.exists() or not dmg_path or not Path(dmg_path).exists():
@@ -219,6 +228,8 @@ def generate(
             )
         )
 
+        produced[row_split] += 1
+
         if len(results) % 20 == 0:
             print(f"  {len(results)}/{n}  ({(time.time()-t0)/len(results):.2f} sn/goruntu)")
 
@@ -226,6 +237,13 @@ def generate(
         f"[inpaint_remove/{method}] {len(results)} uretildi | {skipped} atlandi | "
         f"{rejected} kalite kapisinda reddedildi"
     )
+    print(f"  split dagilimi : {dict(produced)}  (hedef: {targets})")
+    for sp, want in targets.items():
+        if produced[sp] < want:
+            print(
+                f"  UYARI: '{sp}' hedefi {want} idi, {produced[sp]} uretildi. "
+                f"Kaynak havuzu tukendi ya da kalite kapisi cok reddetti."
+            )
     return results
 
 

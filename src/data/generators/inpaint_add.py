@@ -32,13 +32,14 @@ from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image
 
-from src.data.generators import GenResult
+from src.data.generators import GenResult, plan_by_split
 from src.data.imageio import imread, imwrite
 from src.data.generators.pipelines import MODEL_REGISTRY, load_inpaint, make_generator
 from src.data.generators.prompts import NEGATIVE_PROMPT, pick_inpaint_prompt
@@ -103,6 +104,7 @@ def generate(
     seed: int = 0,
     device: str = "cuda",
     enlarge_ratio: float = 0.35,
+    split_quota: dict[str, float] | None = None,
     strength: float = 0.95,
     steps: int | None = None,
     guidance: float | None = None,
@@ -136,17 +138,25 @@ def generate(
         raise RuntimeError("Manifest'te 'real' + 'clean' goruntu yok.")
 
     rng = np.random.default_rng(seed)
-    order = rng.permutation(len(pool))
+    # Kaynak havuzunu duz rastgele gezmek yerine split kotasi uygulanir --
+    # aksi halde uretilenlerin yalnizca ~%9.4'u test setine duser.
+    # Bkz. src/data/generators/__init__.py: SPLIT_QUOTA
+    order, targets = plan_by_split(pool, n, rng, quota=split_quota)
+    print(f"  split hedefleri: {targets}")
 
     pipe = load_inpaint(model, device=device)
     results: list[GenResult] = []
+    produced: Counter[str] = Counter()
     t0 = time.time()
     attempted = skipped_no_mask = rejected = 0
 
     for idx in order:
-        if len(results) >= n:
+        if sum(produced.values()) >= n:
             break
         row = pool.iloc[int(idx)]
+        row_split = str(row["split"])
+        if produced[row_split] >= targets.get(row_split, 0):
+            continue  # bu split'in kotasi doldu
         attempted += 1
 
         src_path = Path(row["path"])
@@ -246,6 +256,8 @@ def generate(
             )
         )
 
+        produced[row_split] += 1
+
         if len(results) % 20 == 0:
             print(f"  {len(results)}/{n}  ({(time.time()-t0)/len(results):.1f} sn/goruntu)")
 
@@ -253,6 +265,13 @@ def generate(
         f"[inpaint_add/{model}] {len(results)} uretildi | {attempted} denendi | "
         f"{skipped_no_mask} uygun maske yok | {rejected} kalite kapisinda reddedildi"
     )
+    print(f"  split dagilimi : {dict(produced)}  (hedef: {targets})")
+    for sp, want in targets.items():
+        if produced[sp] < want:
+            print(
+                f"  UYARI: '{sp}' hedefi {want} idi, {produced[sp]} uretildi. "
+                f"Kaynak havuzu tukendi ya da kalite kapisi cok reddetti."
+            )
     if rejected > 0.3 * max(1, len(results)):
         print(
             "  UYARI: Reddetme orani yuksek. strength degerini artir "
