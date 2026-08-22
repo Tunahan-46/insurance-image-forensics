@@ -61,6 +61,73 @@ TRAIN_AUGMENT_PROFILES: tuple[str, ...] = ("clean", "whatsapp", "double_jpeg")
 
 
 # ---------------------------------------------------------------------------
+# GEOMETRI NORMALIZASYONU -- plan 4.5 Tuzak 2 (W3'te olculdu, ACIKTI)
+# ---------------------------------------------------------------------------
+#
+# OLCUM (scripts/check_leakage.py, manifest_v2 uzerinde):
+#
+#     uzun kenar : gercek/manipule = {1000, 4032}
+#                  sentetik        = {512, 640, 768, 1024, 1152}
+#                  KESISIM = BOS  ->  "uzun kenar == 1000" kurali
+#                  gercegi sentetikten %100 ayiriyordu
+#     en-boy     : tek ozellik AUC 0.803
+#     yon        : gercek %91 yatay, sentetik %44 dikey / %16 kare
+#
+# Yani model forensic iz ogrenmeden once GEOMETRIYI ogrenirdi. Planin
+# talimati acik: "Tum goruntuleri ayni boru hattindan gecir, cozunurluk
+# dagilimini esle."
+#
+# COZUM: her goruntu -- etiketinden bagimsiz olarak -- merkezden KARE
+# kirpilir ve NORMALIZE_EDGE'e indirilir. Cikti her zaman 448x448'dir,
+# dolayisiyla genislik/yukseklik/en-boy/yon alanlarinda etiket bilgisi
+# SIFIRDIR (yapisal garanti, istatistiksel umut degil).
+#
+# NEDEN KARE, neden 4:3 degil:
+#   1. Yon sizintisini da kapatir. 4:3'e kirpmak dikey goruntuleri dikey
+#      birakirdi ve sentetiklerin %44'u dikey.
+#   2. CLIP zaten tam bunu yapiyor: kisa kenari 224'e olcekleyip merkezden
+#      KARE kirpiyor. Yani E3 icin bilgi kaybi neredeyse sifir -- sadece
+#      CLIP'in nasil olsa atacagi kenarlari onceden atmis oluyoruz.
+#
+# NEDEN 448:
+#   Sentetik havuzun en kucuk uzun kenari 512. Hedef 512'nin ALTINDA
+#   secildigi icin HER goruntu gercekten kuculur; hicbiri upscale edilmez
+#   (upscale, yalnizca sentetiklerde olusacak bir interpolasyon izi
+#   birakir -- kapattigimiz sizintinin yerine yenisini koyardi) ve hicbiri
+#   "dokunulmadan" gecmez (512'yi hedef sececek olsak, tam 512 olan 42
+#   sentetik goruntu yeniden orneklenmeden gecerdi; "yeniden orneklenmemis
+#   olmak" tek yonlu bir sentetik isareti olurdu).
+#   448 ayrica CLIP girdisinin (224) tam 2 katidir.
+#
+# BEDELI: medyan %33 kenar kaybi (1.5 en-boy icin). Maske alani kaybi
+# apply_laundering tarafindan raporlanir; kritik olcude maske kaybeden
+# ornekler goze batacak sekilde uyari verir.
+
+NORMALIZE_EDGE = 448
+
+
+def center_square_crop(img: Image.Image) -> Image.Image:
+    """Merkezden en buyuk kareyi kirpar. Yon ve en-boy bilgisini yok eder."""
+    w, h = img.size
+    s = min(w, h)
+    left, top = (w - s) // 2, (h - s) // 2
+    return img.crop((left, top, left + s, top + s))
+
+
+def normalize_geometry(
+    img: Image.Image, target: int = NORMALIZE_EDGE, *, nearest: bool = False
+) -> Image.Image:
+    """Merkezden kare kirp + `target`x`target`'a indir.
+
+    nearest=True yalnizca MASKELER icindir: ikili maskede LANCZOS ara ton
+    uretir ve piksel-F1'i sessizce bozar.
+    """
+    img = center_square_crop(img)
+    resample = Image.NEAREST if nearest else Image.LANCZOS
+    return img.resize((target, target), resample)
+
+
+# ---------------------------------------------------------------------------
 # Atomik islemler
 # ---------------------------------------------------------------------------
 
@@ -197,11 +264,17 @@ LAUNDER_PROFILES: dict[str, Profile] = {
 
 def launder_image(img: Image.Image, profile: str) -> tuple[Image.Image, Profile]:
     """PIL goruntuye profili uygular. Kaydetme YAPMAZ -- son JPEG encode
-    `launder_file` icindedir (bkz. modul basligi, tasarim karari 2)."""
+    `launder_file` icindedir (bkz. modul basligi, tasarim karari 2).
+
+    ILK ADIM her zaman geometri normalizasyonudur (bkz. NORMALIZE_EDGE
+    aciklamasi). Profil adimlari bunun UZERINE uygulanir; boylece
+    cozunurluk/en-boy/yon sizintisi profilden bagimsiz olarak kapanir.
+    """
     if profile not in LAUNDER_PROFILES:
         raise ValueError(f"Bilinmeyen profil: {profile}. Gecerli: {PROFILE_NAMES}")
     p = LAUNDER_PROFILES[profile]
-    return p.apply(img.convert("RGB")), p
+    img = normalize_geometry(img.convert("RGB"))
+    return p.apply(img), p
 
 
 def launder_file(
@@ -260,10 +333,15 @@ def launder_mask(
     sonra hedef boyuta getirmek yerine dogrudan hedef boyuta NEAREST ile
     yeniden orneklemek YETERSIZDIR -- kirpma iceriği kaydirir. Bu yuzden
     kirpma adimi maskeye de aynen uygulanir.
+
+    Ayni gerekce geometri normalizasyonu icin de gecerli: goruntu merkezden
+    KARE kirpiliyorsa maske de kirpilmali, yoksa zemin gercegi goruntuyle
+    hizasini kaybeder. Bu yuzden `normalize_geometry` maskeye de -- ama
+    NEAREST ile -- uygulanir.
     """
     p = LAUNDER_PROFILES[profile]
     with Image.open(mask_src) as m:
-        m = m.convert("L")
+        m = normalize_geometry(m.convert("L"), nearest=True)
         if p.crops:
             m = screenshot_crop(m)
         return m.resize(target_size, Image.NEAREST)

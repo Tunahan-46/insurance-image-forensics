@@ -12,139 +12,270 @@
     "watch": 0.65
   },
   "results": {
-    "A_synthetic": {},
-    "B_manipulated": {
+    "A_synthetic": {
       "meta": {
         "aggressive": {
-          "auc": 0.5505166284594172,
-          "n_train": 9372,
-          "n_test": 539,
+          "auc": 0.9801991662806855,
+          "n_train": 9030,
+          "n_test": 517,
           "train_profile_matched": false
         },
         "clean": {
-          "auc": 0.5525266620153494,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.9763200555812876,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         },
         "double_jpeg": {
-          "auc": 0.5610983753613077,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.9742550563532499,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         },
         "screenshot": {
-          "auc": 0.5492209043489817,
-          "n_train": 9372,
-          "n_test": 539,
+          "auc": 0.981357109773043,
+          "n_train": 9030,
+          "n_test": 517,
           "train_profile_matched": false
         },
         "whatsapp": {
-          "auc": 0.5653427024153626,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.9884398641346303,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         }
       },
       "px8": {
         "aggressive": {
-          "auc": 0.49347154390511316,
-          "n_train": 9372,
-          "n_test": 539,
+          "auc": 0.7765169059749885,
+          "n_train": 9030,
+          "n_test": 517,
           "train_profile_matched": false
         },
         "clean": {
-          "auc": 0.4939366756370644,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.7784661108537902,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         },
         "double_jpeg": {
-          "auc": 0.49423568889331876,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.7781959240389069,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         },
         "screenshot": {
-          "auc": 0.49197647762384134,
-          "n_train": 9372,
-          "n_test": 539,
+          "auc": 0.7757256445885441,
+          "n_train": 9030,
+          "n_test": 517,
           "train_profile_matched": false
         },
         "whatsapp": {
-          "auc": 0.49392006378949466,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.7781959240389069,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         }
       },
       "px32": {
         "aggressive": {
-          "auc": 0.47918535499518256,
-          "n_train": 9372,
-          "n_test": 539,
+          "auc": 0.6436814883433688,
+          "n_train": 9030,
+          "n_test": 517,
           "train_profile_matched": false
         },
         "clean": {
-          "auc": 0.4805973620386059,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.6467693376563225,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         },
         "double_jpeg": {
-          "auc": 0.48001594737366693,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.6466728423652925,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         },
         "screenshot": {
-          "auc": 0.4722914382537626,
-          "n_train": 9372,
-          "n_test": 539,
+          "auc": 0.659854099119963,
+          "n_train": 9030,
+          "n_test": 517,
           "train_profile_matched": false
         },
         "whatsapp": {
-          "auc": 0.47991627628824884,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.6478693839740621,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         }
       },
       "px32_rgb": {
         "aggressive": {
-          "auc": 0.47538124190172426,
-          "n_train": 9372,
-          "n_test": 539,
+          "auc": 0.7090473984869539,
+          "n_train": 9030,
+          "n_test": 517,
           "train_profile_matched": false
         },
         "clean": {
-          "auc": 0.47097910229575735,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.7157441716844217,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         },
         "double_jpeg": {
-          "auc": 0.4707465364297817,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.7169021151767794,
+          "n_train": 3010,
+          "n_test": 517,
           "train_profile_matched": true
         },
         "screenshot": {
-          "auc": 0.47425163626698563,
-          "n_train": 9372,
-          "n_test": 539,
+          "auc": 0.7228655241624209,
+          "n_train": 9030,
+          "n_test": 517,
           "train_profile_matched": false
         },
         "whatsapp": {
-          "auc": 0.4719259776072295,
-          "n_train": 3124,
-          "n_test": 539,
+          "auc": 0.715589779218774,
+          "n_train": 3010,
+          "n_test": 517,
+          "train_profile_matched": true
+        }
+      }
+    },
+    "B_manipulated": {
+      "meta": {
+        "aggressive": {
+          "auc": 0.5251549438673108,
+          "n_train": 9948,
+          "n_test": 619,
+          "train_profile_matched": false
+        },
+        "clean": {
+          "auc": 0.5241403648073403,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        },
+        "double_jpeg": {
+          "auc": 0.5305476521317188,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        },
+        "screenshot": {
+          "auc": 0.5175235448510113,
+          "n_train": 9948,
+          "n_test": 619,
+          "train_profile_matched": false
+        },
+        "whatsapp": {
+          "auc": 0.5413606387436865,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        }
+      },
+      "px8": {
+        "aggressive": {
+          "auc": 0.49795429983016826,
+          "n_train": 9948,
+          "n_test": 619,
+          "train_profile_matched": false
+        },
+        "clean": {
+          "auc": 0.4987317761750369,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        },
+        "double_jpeg": {
+          "auc": 0.49879794437460023,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        },
+        "screenshot": {
+          "auc": 0.49998897196673936,
+          "n_train": 9948,
+          "n_test": 619,
+          "train_profile_matched": false
+        },
+        "whatsapp": {
+          "auc": 0.49885308454090305,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        }
+      },
+      "px32": {
+        "aggressive": {
+          "auc": 0.47553982222810387,
+          "n_train": 9948,
+          "n_test": 619,
+          "train_profile_matched": false
+        },
+        "clean": {
+          "auc": 0.4782306623436777,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        },
+        "double_jpeg": {
+          "auc": 0.4782858025099804,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        },
+        "screenshot": {
+          "auc": 0.4840644919385077,
+          "n_train": 9948,
+          "n_test": 619,
+          "train_profile_matched": false
+        },
+        "whatsapp": {
+          "auc": 0.47686318621936963,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        }
+      },
+      "px32_rgb": {
+        "aggressive": {
+          "auc": 0.4517633825183617,
+          "n_train": 9948,
+          "n_test": 619,
+          "train_profile_matched": false
+        },
+        "clean": {
+          "auc": 0.45607534352323603,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        },
+        "double_jpeg": {
+          "auc": 0.4551269326628289,
+          "n_train": 3316,
+          "n_test": 619,
+          "train_profile_matched": true
+        },
+        "screenshot": {
+          "auc": 0.4633428174419374,
+          "n_train": 9948,
+          "n_test": 619,
+          "train_profile_matched": false
+        },
+        "whatsapp": {
+          "auc": 0.4557224464588985,
+          "n_train": 3316,
+          "n_test": 619,
           "train_profile_matched": true
         }
       }
     }
   },
   "notes": [
-    "[B_manipulated] 32x32 AUC=0.481 < 0.65: dusuk seviyeli kestirme yol ZAYIF. Veri seti bu acidan saglikli; Hafta 3'te alacagin AUC gercek sinyal sayilabilir."
+    "[A_synthetic] META prob AUC=0.976: model TEK BIR PIKSEL OKUMADAN ayirt edebiliyor. Cozunurluk/dosya boyutu dagilimlari sinifa gore farkli. Plan 4.5 Tuzak 2/3 DOGRULANDI.",
+    "[A_synthetic] 32x32 AUC=0.647 < 0.65: dusuk seviyeli kestirme yol ZAYIF. Veri seti bu acidan saglikli; Hafta 3'te alacagin AUC gercek sinyal sayilabilir.",
+    "[B_manipulated] 32x32 AUC=0.478 < 0.65: dusuk seviyeli kestirme yol ZAYIF. Veri seti bu acidan saglikli; Hafta 3'te alacagin AUC gercek sinyal sayilabilir."
   ]
 }

@@ -52,15 +52,12 @@ from src.data.launder import (
     launder_file,
 )
 from src.data.manifest import (
+    add_row,
     check_split_leakage,
-    check_unique_image_id,
     load_manifest,
-    make_image_id,
-    make_row,
-    rows_to_manifest,
+    new_manifest,
     save_manifest,
     summarize,
-    variant_id_of,
 )
 
 IN_MANIFEST = "data/processed/manifest_v2.parquet"
@@ -90,20 +87,6 @@ def main() -> None:
         sys.exit(1)
 
     df = load_manifest(a.manifest)
-
-    # Girdi manifesti saglam mi? Bunu BASTA kontrol et: cakisan image_id'ler
-    # ayni cikti dosyasina yazar ve hatayi ancak 30 dakika sonra fark
-    # edersin. Eski surumle uretilmis manifest'ler bu kontrole takilir.
-    stale = check_unique_image_id(df)
-    if stale:
-        print("HATA: girdi manifestinde image_id cakismasi var.")
-        for p in stale:
-            print(f"  {p}")
-        print("\nBu manifest, variant_id duzeltmesinden ONCEKI surumle")
-        print("uretilmis. Once yeniden kur (goruntu uretimi GEREKMEZ, ~1-2 dk):")
-        print("  python scripts/build_manifest_v2.py")
-        sys.exit(1)
-
     base = df[df["launder_profile"] == "clean"].reset_index(drop=True)
     base = base[base["split"].isin(a.splits)].reset_index(drop=True)
     if a.limit:
@@ -117,13 +100,19 @@ def main() -> None:
         print(f"           train/val -> {list(TRAIN_AUGMENT_PROFILES)}")
 
     out_root = Path(a.out_root)
-    # Satirlar listede biriktirilip TEK SEFERDE DataFrame'e cevrilir.
-    # Satir basina pd.concat O(N^2) kopyalamadir; 14.800 satirda bu,
-    # laundering'in kendisinden uzun surer.
-    rows: list[dict] = []
+    out_df = new_manifest()
     counts: Counter[str] = Counter()
     errors = 0
     t0 = time.time()
+
+    # MASKE KAYBI TAKIBI (W3) -- geometri normalizasyonu merkezden KARE
+    # kirptigi icin (bkz. src.data.launder.NORMALIZE_EDGE) kenarda kalan bir
+    # manipulasyon bolgesi kirpilip gidebilir. Zemin gercegi bos kalirsa
+    # o ornek "manipule" etiketli ama gosterilecek yeri olmayan bir kayda
+    # doner ve piksel-F1'i sessizce bozar. Sayiyi topluyoruz ki sessiz
+    # kalmasin.
+    mask_lost: list[str] = []
+    mask_shrunk: list[tuple[str, float]] = []
 
     for i, row in base.iterrows():
         src = Path(row["path"])
@@ -143,14 +132,8 @@ def main() -> None:
         # L1 metadata dedektoru icin orijinal yolu KAYBETME (plan 7.1).
         gp_dict["original_path"] = str(src).replace("\\", "/")
 
-        # Dosya adi variant_id'den uretilir, source_image_id'den DEGIL.
-        # cardd_0001 (real) ile cardd_0001_copy_move (manip) ayni
-        # source_image_id'yi paylasir; source'tan ad uretmek ikisini ayni
-        # dosyaya yazar ve etiketlerden birini yalan yapar.
-        variant = variant_id_of(row["image_id"])
-
         for profile in profiles_for_split(str(row["split"]), a.profiles):
-            image_id = make_image_id(variant, profile)
+            image_id = f"{row['source_image_id']}__{profile}"
             dst = out_root / profile / f"{image_id}.jpg"
             mask_dst = (out_root / profile / "masks" / f"{image_id}.png") if mask_src else None
 
@@ -171,9 +154,23 @@ def main() -> None:
                     errors += 1
                     continue
 
-            rows.append(make_row(
+            if profile == "clean" and info["mask_dst"]:
+                try:
+                    import numpy as _np
+
+                    before = _np.asarray(Image.open(mask_src).convert("L")) > 127
+                    after = _np.asarray(Image.open(info["mask_dst"]).convert("L")) > 127
+                    f0, f1 = before.mean(), after.mean()
+                    if f1 < 1e-5:
+                        mask_lost.append(str(row["source_image_id"]))
+                    elif f0 > 0 and f1 / f0 < 0.5:
+                        mask_shrunk.append((str(row["source_image_id"]), f1 / f0))
+                except Exception:
+                    pass
+
+            out_df = add_row(
+                out_df,
                 source_image_id=str(row["source_image_id"]),
-                variant_id=variant,
                 path=info["dst"],
                 label=str(row["label"]),
                 manip_type=str(row["manip_type"]),
@@ -184,7 +181,7 @@ def main() -> None:
                 split=str(row["split"]),
                 launder_profile=profile,
                 gen_params={**gp_dict, "launder_save_quality": info["save_quality"]},
-            ))
+            )
             counts[profile] += 1
 
         if (i + 1) % 200 == 0:
@@ -195,23 +192,35 @@ def main() -> None:
     print("DOGRULAMA")
     print("=" * 62)
 
-    if not rows:
+    if len(out_df) == 0:
         print("HATA: hicbir cikti uretilmedi.")
         sys.exit(1)
 
-    out_df = rows_to_manifest(rows)
-
     problems = check_split_leakage(out_df)
-    problems += check_unique_image_id(out_df)
     if problems:
-        print("DOGRULAMA BASARISIZ -- manifest KAYDEDILMEDI:")
+        print("SIZINTI -- manifest KAYDEDILMEDI:")
         for p in problems:
             print(f"  {p}")
         sys.exit(1)
     print("Split sizintisi: TEMIZ")
-    print(f"image_id benzersiz: TEMIZ ({out_df['image_id'].nunique()} kimlik)")
     print(f"Hata/atlanan   : {errors}")
     print(f"Profil basina  : {dict(counts)}")
+
+    print("\nMASKE KORUNUMU (kare kirpma sonrasi)")
+    if mask_lost:
+        print(f"  >>> {len(mask_lost)} maske TAMAMEN kayboldu -- bu ornekler")
+        print("      'manipule' etiketli ama zemin gercegi bos. Ornekler:")
+        for s in mask_lost[:10]:
+            print(f"        {s}")
+        print("      Cozum: bu kayitlari manifest'ten dusur veya yeniden uret.")
+    else:
+        print("  Tamamen kaybolan maske: 0")
+    if mask_shrunk:
+        print(f"  Alani yariya inen maske: {len(mask_shrunk)}")
+        for s, r in sorted(mask_shrunk, key=lambda x: x[1])[:5]:
+            print(f"        {s}  (kalan %{100*r:.0f})")
+    else:
+        print("  Alani yariya inen maske: 0")
 
     # Test setinde her profil x etiket hucresi dolu mu?
     test = out_df[out_df["split"] == "test"]

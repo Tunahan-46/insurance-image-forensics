@@ -1,0 +1,584 @@
+{
+  "manifest": "data\\processed\\manifest_v2_laundered.parquet",
+  "sample": 250,
+  "tasks": {
+    "A": {
+      "aggressive": {
+        "n": 517,
+        "metadata": {
+          "genislik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yukseklik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "uzun kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "kisa kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "piksel sayisi": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "en-boy": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yon (w>h)": {
+            "auc": 0.5,
+            "ayrik": false
+          }
+        },
+        "content": {
+          "dosya boyutu": {
+            "auc": 0.7038,
+            "info_only": false
+          },
+          "q95 yeniden boyut": {
+            "auc": 0.6988,
+            "info_only": false
+          },
+          "laplasyen var.": {
+            "auc": 0.6124,
+            "info_only": false
+          },
+          "blokluk": {
+            "auc": 0.6559,
+            "info_only": false
+          },
+          "doygunluk": {
+            "auc": 0.5756,
+            "info_only": true
+          }
+        },
+        "content_n": 386,
+        "content_missing": 0
+      },
+      "clean": {
+        "n": 4382,
+        "metadata": {
+          "genislik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yukseklik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "uzun kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "kisa kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "piksel sayisi": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "en-boy": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yon (w>h)": {
+            "auc": 0.5,
+            "ayrik": false
+          }
+        },
+        "content": {
+          "dosya boyutu": {
+            "auc": 0.6558,
+            "info_only": false
+          },
+          "q95 yeniden boyut": {
+            "auc": 0.6598,
+            "info_only": false
+          },
+          "laplasyen var.": {
+            "auc": 0.6402,
+            "info_only": false
+          },
+          "blokluk": {
+            "auc": 0.5661,
+            "info_only": false
+          },
+          "doygunluk": {
+            "auc": 0.6704,
+            "info_only": true
+          }
+        },
+        "content_n": 500,
+        "content_missing": 0
+      },
+      "double_jpeg": {
+        "n": 4382,
+        "metadata": {
+          "genislik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yukseklik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "uzun kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "kisa kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "piksel sayisi": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "en-boy": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yon (w>h)": {
+            "auc": 0.5,
+            "ayrik": false
+          }
+        },
+        "content": {
+          "dosya boyutu": {
+            "auc": 0.696,
+            "info_only": false
+          },
+          "q95 yeniden boyut": {
+            "auc": 0.6876,
+            "info_only": false
+          },
+          "laplasyen var.": {
+            "auc": 0.6454,
+            "info_only": false
+          },
+          "blokluk": {
+            "auc": 0.6373,
+            "info_only": false
+          },
+          "doygunluk": {
+            "auc": 0.6729,
+            "info_only": true
+          }
+        },
+        "content_n": 500,
+        "content_missing": 0
+      },
+      "screenshot": {
+        "n": 517,
+        "metadata": {
+          "genislik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yukseklik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "uzun kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "kisa kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "piksel sayisi": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "en-boy": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yon (w>h)": {
+            "auc": 0.5,
+            "ayrik": false
+          }
+        },
+        "content": {
+          "dosya boyutu": {
+            "auc": 0.6634,
+            "info_only": false
+          },
+          "q95 yeniden boyut": {
+            "auc": 0.6637,
+            "info_only": false
+          },
+          "laplasyen var.": {
+            "auc": 0.5536,
+            "info_only": false
+          },
+          "blokluk": {
+            "auc": 0.5195,
+            "info_only": false
+          },
+          "doygunluk": {
+            "auc": 0.5696,
+            "info_only": true
+          }
+        },
+        "content_n": 386,
+        "content_missing": 0
+      },
+      "whatsapp": {
+        "n": 4382,
+        "metadata": {
+          "genislik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yukseklik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "uzun kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "kisa kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "piksel sayisi": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "en-boy": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yon (w>h)": {
+            "auc": 0.5,
+            "ayrik": false
+          }
+        },
+        "content": {
+          "dosya boyutu": {
+            "auc": 0.6899,
+            "info_only": false
+          },
+          "q95 yeniden boyut": {
+            "auc": 0.682,
+            "info_only": false
+          },
+          "laplasyen var.": {
+            "auc": 0.6422,
+            "info_only": false
+          },
+          "blokluk": {
+            "auc": 0.6468,
+            "info_only": false
+          },
+          "doygunluk": {
+            "auc": 0.6705,
+            "info_only": true
+          }
+        },
+        "content_n": 500,
+        "content_missing": 0
+      }
+    },
+    "B": {
+      "aggressive": {
+        "n": 514,
+        "metadata": {
+          "genislik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yukseklik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "uzun kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "kisa kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "piksel sayisi": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "en-boy": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yon (w>h)": {
+            "auc": 0.5,
+            "ayrik": false
+          }
+        },
+        "content": {
+          "dosya boyutu": {
+            "auc": 0.5124,
+            "info_only": false
+          },
+          "q95 yeniden boyut": {
+            "auc": 0.5126,
+            "info_only": false
+          },
+          "laplasyen var.": {
+            "auc": 0.5191,
+            "info_only": false
+          },
+          "blokluk": {
+            "auc": 0.5034,
+            "info_only": false
+          },
+          "doygunluk": {
+            "auc": 0.5118,
+            "info_only": true
+          }
+        },
+        "content_n": 383,
+        "content_missing": 0
+      },
+      "clean": {
+        "n": 4892,
+        "metadata": {
+          "genislik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yukseklik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "uzun kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "kisa kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "piksel sayisi": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "en-boy": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yon (w>h)": {
+            "auc": 0.5,
+            "ayrik": false
+          }
+        },
+        "content": {
+          "dosya boyutu": {
+            "auc": 0.5068,
+            "info_only": false
+          },
+          "q95 yeniden boyut": {
+            "auc": 0.5066,
+            "info_only": false
+          },
+          "laplasyen var.": {
+            "auc": 0.5032,
+            "info_only": false
+          },
+          "blokluk": {
+            "auc": 0.5137,
+            "info_only": false
+          },
+          "doygunluk": {
+            "auc": 0.51,
+            "info_only": true
+          }
+        },
+        "content_n": 500,
+        "content_missing": 0
+      },
+      "double_jpeg": {
+        "n": 4892,
+        "metadata": {
+          "genislik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yukseklik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "uzun kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "kisa kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "piksel sayisi": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "en-boy": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yon (w>h)": {
+            "auc": 0.5,
+            "ayrik": false
+          }
+        },
+        "content": {
+          "dosya boyutu": {
+            "auc": 0.5116,
+            "info_only": false
+          },
+          "q95 yeniden boyut": {
+            "auc": 0.5121,
+            "info_only": false
+          },
+          "laplasyen var.": {
+            "auc": 0.5049,
+            "info_only": false
+          },
+          "blokluk": {
+            "auc": 0.5072,
+            "info_only": false
+          },
+          "doygunluk": {
+            "auc": 0.5089,
+            "info_only": true
+          }
+        },
+        "content_n": 500,
+        "content_missing": 0
+      },
+      "screenshot": {
+        "n": 514,
+        "metadata": {
+          "genislik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yukseklik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "uzun kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "kisa kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "piksel sayisi": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "en-boy": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yon (w>h)": {
+            "auc": 0.5,
+            "ayrik": false
+          }
+        },
+        "content": {
+          "dosya boyutu": {
+            "auc": 0.5122,
+            "info_only": false
+          },
+          "q95 yeniden boyut": {
+            "auc": 0.5119,
+            "info_only": false
+          },
+          "laplasyen var.": {
+            "auc": 0.5199,
+            "info_only": false
+          },
+          "blokluk": {
+            "auc": 0.5411,
+            "info_only": false
+          },
+          "doygunluk": {
+            "auc": 0.5099,
+            "info_only": true
+          }
+        },
+        "content_n": 383,
+        "content_missing": 0
+      },
+      "whatsapp": {
+        "n": 4892,
+        "metadata": {
+          "genislik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yukseklik": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "uzun kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "kisa kenar": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "piksel sayisi": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "en-boy": {
+            "auc": 0.5,
+            "ayrik": false
+          },
+          "yon (w>h)": {
+            "auc": 0.5,
+            "ayrik": false
+          }
+        },
+        "content": {
+          "dosya boyutu": {
+            "auc": 0.5104,
+            "info_only": false
+          },
+          "q95 yeniden boyut": {
+            "auc": 0.5107,
+            "info_only": false
+          },
+          "laplasyen var.": {
+            "auc": 0.5049,
+            "info_only": false
+          },
+          "blokluk": {
+            "auc": 0.5016,
+            "info_only": false
+          },
+          "doygunluk": {
+            "auc": 0.5095,
+            "info_only": true
+          }
+        },
+        "content_n": 500,
+        "content_missing": 0
+      }
+    }
+  },
+  "worst_metadata_auc": 0.5,
+  "worst_content_auc": 0.7038,
+  "ayrik_alarm": false,
+  "durum": "SARI"
+}

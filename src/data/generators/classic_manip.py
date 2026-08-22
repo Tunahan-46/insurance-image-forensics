@@ -16,6 +16,28 @@ Uc alt tip:
 
 Hepsi GPU'suz, saniyeler icinde calisir. Maskeler zemin gercegidir.
 
+W3 DUZELTMESI -- GOZLE DENETIMDE BULUNAN IKI SORUN
+---------------------------------------------------
+dataset_card.md icin kolaj uretilirken (scripts/make_collage.py) iki ayri
+kok neden bulundu, ikisi de bu dosyada duzeltildi:
+
+  1. splice/copy_move'da renk uyumsuzlugu. `_paste_region` %70/%60
+     olasilikla cv2.seamlessClone kullaniyordu ama Poisson blending
+     BUYUK/dokulu yamalarda merkez rengini degistirmez (sadece sinirdan
+     iceri sizar). Olcum (scripts/diag_splice.py): splice orneklerinin
+     %31'i "alakasiz renk" esiginin (dE>25) uzerindeydi. Duzeltme:
+     harmanlamadan ONCE `masks.color_transfer` ile yamanin rengi hedefin
+     yerel rengine yaklastiriliyor; harmanlama SONRASI da
+     `masks.color_consistency_de` ile ikinci bir kabul kapisi eklendi.
+
+  2. bg_replace'te dikdortgen maske. `vehicle_region` (GrabCut) yakin
+     cekim goruntulerde anlamli bir on/arka plan ayrimi bulamayip ROI
+     dikdortgenine yakin bir sonuc uretebiliyordu (cardd_003639_bg_replace
+     -- dumduz kirmizi bir dikdortgen dogrudan farin ustune yapismisti).
+     Bu HEM gercekci degil HEM DE plan 4.5'in acikca uyardigi "dikdortgen
+     maske -> ogrenilebilir kestirme yol" tuzagi. Duzeltme:
+     `masks.shape_is_rectangular` ile bu durum tespit edilip reddediliyor.
+
 Calistirma:
     python -m src.data.generators.classic_manip --manifest data/processed/manifest_v1.parquet --n 400
 """
@@ -32,6 +54,8 @@ from src.data.generators import GenResult
 from src.data.imageio import imread, imwrite
 from src.data.masks import (
     changed_fraction_in_mask,
+    color_consistency_de,
+    color_transfer,
     dilate,
     leak_fraction_outside_mask,
     load_mask,
@@ -40,6 +64,7 @@ from src.data.masks import (
     roughen,
     sample_point_in,
     save_mask,
+    shape_is_rectangular,
     vehicle_region,
 )
 
@@ -53,6 +78,36 @@ SUBTYPES = ("copy_move", "splice", "bg_replace")
 # piksel zemin gercegini yalanlar.
 MIN_CHANGED_IN_MASK = 0.25
 
+# IKINCI KABUL KAPISI -- W3 duzeltmesi (bkz. dosya basi docstring).
+# color_transfer harmanlamadan once rengi hedefe yaklastirir ama garanti
+# etmez (kucuk/parcali maskede olcum gurultulu olabilir, ya da seamless
+# sinir pikselinde renk transferini kismen ezebilir). Bu, SONUCU olcen
+# bagimsiz bir dogrulama: maske ici hala cevresinden "alakasiz" derecede
+# farkliysa (bkz. masks.color_consistency_de docstring, dE>25 esigi)
+# diske YAZILMAZ. Sadece splice/copy_move icin uygulanir -- bg_replace
+# zaten farkli bir sahne yapistiriyor, yuksek dE orada beklenen ve normal.
+MAX_COLOR_DE = 25.0
+
+# bg_replace icin ton harmanlama gucu -- W3 2. tur duzeltme (bkz.
+# bg_replace docstring). 1.0 = donor arka plan tamamen orijinal sahnenin
+# renk istatistiklerine cekilir (farkli sahne hissi kaybolur); 0.0 = hic
+# dokunulmaz (eski davranis). 0.5, "farkli ama uyumlu ton" dengesini
+# hedefliyor.
+BG_TONE_MATCH_STRENGTH = 0.5
+
+# bg_replace icin UCUNCU kabul kapisi: renk-transferi + genis harmanlamadan
+# SONRA bile bazi ornekler asiri kaliyor (donor sahnenin ton/parlakligi
+# orijinalden cok uzaksa color_transfer tek basina yetmeyebilir). Esik,
+# splice/copy_move'daki MAX_COLOR_DE'den kasten FARKLI ve DAHA GEVSEK:
+# bg_replace maskesinin dogal (manipulasyonsuz) taban dE'si zaten yuksek
+# (~16-40, cunku arac kenari ile arka plan gercek fotograflarda da farkli
+# renktedir -- bkz. diag_splice.py "dE kaynak" sutunu). Bu yuzden MUTLAK
+# dE yerine "artis" (manip dE - kaynak dE) olculur: manipulasyonun KENDISI
+# ne kadar EK renk kopuklugu getirdi. 30'un uzerindeki artis, dogal sahne
+# farkiyla aciklanamayacak kadar buyuk kabul edildi (olculen en kotu 10
+# ornekte artis 36-89 araligindaydi).
+BG_MAX_COLOR_ARTIS = 30.0
+
 
 def _paste_region(
     dst_bgr: np.ndarray,
@@ -61,6 +116,7 @@ def _paste_region(
     center: tuple[int, int],
     *,
     seamless: bool = True,
+    color_match: bool = True,
 ) -> np.ndarray:
     """Maskeli bolgeyi hedefe yapistirir.
 
@@ -71,8 +127,22 @@ def _paste_region(
 
     seamless=False -> duz alfa harmanlama. Daha 'amator' bir saldiri;
     veri setinde ikisinin de bulunmasi zorluk cesitliligi saglar.
+
+    color_match=True (varsayilan) -> harmanlamadan ONCE `src_patch`'in
+    maske icindeki rengi, dst_bgr'nin maskeyi cevreleyen halkasina Lab
+    uzayinda yaklastirilir (bkz. masks.color_transfer). W3'te gozle
+    bulundu: buyuk/dokulu yamalarda Poisson blending TEK BASINA merkez
+    rengini degistirmiyor (sadece sinirdan sizar), duz alfa ise HIC
+    degistirmiyor -- ikisi de iki farkli aracin renginin yamada oldugu
+    gibi kalmasina yol aciyordu.
     """
     cy, cx = center
+    if color_match:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (53, 53))
+        k_in = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
+        binm = (mask > 127).astype(np.uint8)
+        ring = (cv2.dilate(binm, k) - cv2.dilate(binm, k_in)).clip(0, 1) * 255
+        src_patch = color_transfer(src_patch, mask, dst_bgr, ring.astype(np.uint8))
     if seamless:
         try:
             return cv2.seamlessClone(
@@ -108,7 +178,9 @@ def copy_move(
     Zemin gercegi = YAPISTIRILAN bolge (kaynak bolge degil; kaynak orijinaldir).
     """
     h, w = img_bgr.shape[:2]
-    body = vehicle_region(img_bgr)
+    # damage_mask (CarDD'nin bilinen hasar konumu) GrabCut'a tohum olarak
+    # veriliyor -- W3 3. tur duzeltmesi, bkz. masks.vehicle_region docstring.
+    body = vehicle_region(img_bgr, hint_mask=damage_mask)
 
     if damage_mask is not None and mask_area_frac(damage_mask) > 0.002:
         src_mask = dilate(damage_mask, 6)
@@ -147,9 +219,16 @@ def splice(
     donor_bgr: np.ndarray,
     donor_mask: np.ndarray | None,
     rng: np.random.Generator,
+    *,
+    dst_damage_mask: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Baska bir aracin hasar bolgesini kes, bu goruntuye yapistir.
-    Plan tablo 4.1 #3: 'baska bir aracin hasar fotografini kullanma'."""
+    Plan tablo 4.1 #3: 'baska bir aracin hasar fotografini kullanma'.
+
+    dst_damage_mask: HEDEF (img_bgr) goruntunun kendi CarDD hasar konumu --
+    varsa `vehicle_region`'a GrabCut tohumu olarak veriliyor (W3 3. tur
+    duzeltmesi, bkz. masks.vehicle_region docstring). donor_mask zaten
+    ayni amacla donor tarafinda kullaniliyor (yamanin KENDISI olarak)."""
     h, w = img_bgr.shape[:2]
     donor_bgr = cv2.resize(donor_bgr, (w, h), interpolation=cv2.INTER_LANCZOS4)
 
@@ -162,7 +241,7 @@ def splice(
             return None
         patch_mask = roughen(random_blob(h, w, rng=rng, center=pt, radius_frac=0.10), rng)
 
-    body = vehicle_region(img_bgr)
+    body = vehicle_region(img_bgr, hint_mask=dst_damage_mask)
     for _ in range(30):
         dst_c = sample_point_in(body, rng)
         if dst_c is None:
@@ -182,23 +261,61 @@ def splice(
 
 
 def bg_replace(
-    img_bgr: np.ndarray, bg_bgr: np.ndarray, rng: np.random.Generator
+    img_bgr: np.ndarray,
+    bg_bgr: np.ndarray,
+    rng: np.random.Generator,
+    *,
+    damage_mask: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Araci koru, arka plani degistir (olay yerini uydurma).
 
     Zemin gercegi maskesi = ARKA PLAN (aracin TERSI). Bu, veri setindeki
     diger senaryolarin tersi bir topolojidir: manipule alan buyuk ve
     baglantili. Localization modelinin ikisini de gormesi onemli, aksi
-    halde 'kucuk leke ara' onyargisi ogrenir."""
+    halde 'kucuk leke ara' onyargisi ogrenir.
+
+    W3 DUZELTMESI (2. tur): dikdortgen-maske kapisi (shape_is_rectangular)
+    en kotu ornekleri aciklamadi -- `scripts/diag_bg_shape.py` ile olculdu,
+    extent ile dE arasinda korelasyon YOK (en yuksek 'artis'li 20 ornegin
+    ortalama extent'i 0.678, genelin ortalamasi 0.675 -- ayni). Yani kok
+    neden segmentasyon SEKLI degil: donor arka planin genel ton/parlakligi
+    orijinal sahneden cok farkli olabiliyor ve sabit 21x21 Gauss harmanlama
+    bunu gizlemeye yetmiyor (o sadece GEOMETRIK gecisi yumusatir, RENK/ISIK
+    uyusmazligini degil). Duzeltme: (1) donor arka plan, orijinal sahnenin
+    KENDI arka planinin renk istatistiklerine `masks.color_transfer` ile
+    KISMEN (strength=0.5 -- tam degil, hala 'farkli sahne' kalsin diye)
+    yaklastiriliyor; (2) harmanlama cekirdegi goruntu boyutuyla olceklendi.
+    Kalan asiri uc ornekler `generate()` icinde ayrica bir dE kapisindan
+    (BG_MAX_COLOR_ARTIS) geciyor.
+
+    W3 DUZELTMESI (3. tur): yeniden uretilen kolajda GOZLE bulundu --
+    GrabCut istisna atmadan yakinsiyor ama goruntunun kabaca yarisini duz
+    olmayan (dolayisiyla shape_is_rectangular tarafindan YAKALANMAYAN) bir
+    sinirla "arac" saniyor. `damage_mask` -- CarDD'nin kendi hasar konumu,
+    aracin KESIN uzerinde -- verilirse GrabCut'a tohum olarak geciliyor
+    (bkz. masks.vehicle_region docstring); bu, dogru nesneye kilitlenme
+    olasiligini buyuk olcude artiriyor.
+    """
     h, w = img_bgr.shape[:2]
-    body = vehicle_region(img_bgr)
+    body = vehicle_region(img_bgr, hint_mask=damage_mask)
     frac = mask_area_frac(body)
     if not (0.10 < frac < 0.85):
         return None  # segmentasyon guvenilmez
+    if shape_is_rectangular(body):
+        # GrabCut yakinsamadi ve vehicle_region dikdortgen fallback'e
+        # dustu (bkz. masks.vehicle_region). Plan bunu acikca yasakliyor;
+        # bu ornegi uretmek yerine reddediyoruz (W3 bulgusu).
+        return None
 
-    bg = cv2.resize(bg_bgr, (w, h), interpolation=cv2.INTER_LANCZOS4)
     bg_mask = cv2.bitwise_not(body)
-    a = (cv2.GaussianBlur(bg_mask, (21, 21), 0).astype(np.float32) / 255.0)[..., None]
+    bg = cv2.resize(bg_bgr, (w, h), interpolation=cv2.INTER_LANCZOS4)
+    full_mask = np.full((h, w), 255, dtype=np.uint8)
+    bg = color_transfer(bg, full_mask, img_bgr, bg_mask, strength=BG_TONE_MATCH_STRENGTH)
+
+    # Harmanlama genisligi resme oranli: sabit 21px, buyuk/yuksek
+    # cozunurluklu fotograflarda geciyi sert birakiyordu.
+    k = max(21, (min(h, w) // 20) | 1)  # tek sayi olmali
+    a = (cv2.GaussianBlur(bg_mask, (k, k), 0).astype(np.float32) / 255.0)[..., None]
     out = (bg.astype(np.float32) * a + img_bgr.astype(np.float32) * (1 - a)).astype(np.uint8)
     return out, bg_mask
 
@@ -343,7 +460,7 @@ def generate(
             dmask = load_mask(dpath, size=(donor.shape[1], donor.shape[0])) \
                 if dpath and Path(dpath).exists() else None
             donor_sid = str(drow["source_image_id"])
-            res = splice(img, donor, dmask, rng)
+            res = splice(img, donor, dmask, rng, dst_damage_mask=dmg)
         else:
             j = pick_donor(int(idx), str(row["split"]))
             if j is None:
@@ -354,7 +471,7 @@ def generate(
                 skipped += 1
                 continue
             donor_sid = str(pool.iloc[j]["source_image_id"])
-            res = bg_replace(img, bg, rng)
+            res = bg_replace(img, bg, rng, damage_mask=dmg)
 
         if res is None:
             skipped += 1
@@ -367,6 +484,35 @@ def generate(
             # Diske YAZMA -- bkz. MIN_CHANGED_IN_MASK aciklamasi.
             rejected += 1
             continue
+
+        # IKINCI/UCUNCU KABUL KAPISI (W3 duzeltmesi) -- renk uyumu
+        # -----------------------------------------------------------
+        # copy_move/splice icin _paste_region artik color_transfer
+        # uyguluyor, ama seamlessClone/color_transfer nadir girdilerde
+        # (cok kucuk maske, dusuk kontrast) yine de basarisiz kalabilir.
+        # diag_splice.py ile olculen dE metrigini burada da uygulayip
+        # alakasiz renkli sonuclari diske yazmadan eliyoruz.
+        #
+        # bg_replace ayri ele alinir: MUTLAK dE degil, dogal taban
+        # DEGERINE GORE ARTIS olculur (bkz. BG_MAX_COLOR_ARTIS aciklamasi)
+        # -- cunku bu senaryoda arac/arka plan sinirinda dogal fotograflarda
+        # bile hatiri sayilir bir renk farki OLMASI beklenir.
+        if subtype in ("copy_move", "splice"):
+            de = color_consistency_de(out_img, out_mask)
+            if de is not None and de > MAX_COLOR_DE:
+                rejected += 1
+                continue
+        elif subtype == "bg_replace":
+            de_manip = color_consistency_de(out_img, out_mask)
+            de_kaynak = color_consistency_de(img, out_mask)
+            if (
+                de_manip is not None
+                and de_kaynak is not None
+                and (de_manip - de_kaynak) > BG_MAX_COLOR_ARTIS
+            ):
+                rejected += 1
+                continue
+
         leak = leak_fraction_outside_mask(img, out_img, out_mask)
 
         imwrite(out_path, out_img)

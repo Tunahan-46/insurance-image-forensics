@@ -1,0 +1,29 @@
+{
+  "profile": "clean",
+  "tests": {
+    "1_etiketsiz_kontrol": {
+      "dosya boyutu": 0.728525641025641,
+      "q95 yeniden boyut": 0.7325641025641025,
+      "laplasyen var.": 0.8121794871794872,
+      "blokluk": 0.777051282051282,
+      "doygunluk": 0.5498717948717948,
+      "_n": 352.0
+    },
+    "2_oran_eslesmis": {
+      "dosya boyutu": 0.6050833333333333,
+      "q95 yeniden boyut": 0.600125,
+      "laplasyen var.": 0.5231250000000001,
+      "blokluk": 0.6209166666666667,
+      "doygunluk": 0.5357083333333333,
+      "_n": 380.0
+    },
+    "3_oran_uyumsuz": {
+      "dosya boyutu": 0.7252799999999999,
+      "q95 yeniden boyut": 0.7299800000000001,
+      "laplasyen var.": 0.7009200000000001,
+      "blokluk": 0.6358666666666667,
+      "doygunluk": 0.6222400000000001,
+      "_n": 550.0
+    }
+  }
+}

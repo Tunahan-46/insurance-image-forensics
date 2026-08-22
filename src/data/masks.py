@@ -186,7 +186,12 @@ def leak_fraction_outside_mask(
 GRABCUT_MAX_DIM = 512
 
 
-def vehicle_region(image_bgr: np.ndarray, *, max_dim: int = GRABCUT_MAX_DIM) -> np.ndarray:
+def vehicle_region(
+    image_bgr: np.ndarray,
+    *,
+    max_dim: int = GRABCUT_MAX_DIM,
+    hint_mask: np.ndarray | None = None,
+) -> np.ndarray:
     """Kaba bir "arac govdesi" maskesi.
 
     SAM kullanmiyoruz cunku W1'de CarDD maskelerinin hazir oldugu goruldu;
@@ -214,6 +219,16 @@ def vehicle_region(image_bgr: np.ndarray, *, max_dim: int = GRABCUT_MAX_DIM) -> 
 
     GrabCut basarisiz olursa merkez %60'lik bolgeye duser -- sessizce
     yanlis sonuc uretmek yerine bilinen bir geri cekilme davranisi.
+
+    W3 DUZELTMESI (3. tur): kolajda GOZLE bulundu -- GrabCut bazen istisna
+    ATMADAN "basariyla" yakinsiyor ama TAMAMEN yanlis bir bolge seciyor
+    (orn. goruntunun kabaca yarisini duz bir sinirla "arac" saniyor).
+    `shape_is_rectangular` bunu YAKALAMAZ cunku sinir mukemmel dikdortgen
+    degil, egri/kismen duzensiz olabilir; `diag_bg_shape.py` de bunu
+    dogruladi (extent ile dE artisi arasinda korelasyon yok). hint_mask
+    -- CarDD'nin kendi hasar konumu, aracin KESIN uzerinde bilinen bir
+    bolge -- verilirse GrabCut'a "burasi KESIN on plan" diye tohumlanir
+    (GC_FGD), boylece dogru nesneye kilitlenme olasiligi artar.
     """
     H, W = image_bgr.shape[:2]
 
@@ -227,9 +242,24 @@ def vehicle_region(image_bgr: np.ndarray, *, max_dim: int = GRABCUT_MAX_DIM) -> 
 
     rect = (int(w * 0.08), int(h * 0.08), int(w * 0.84), int(h * 0.84))
     try:
-        gc_mask = np.zeros((h, w), np.uint8)
         bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
-        cv2.grabCut(small, gc_mask, rect, bgd, fgd, 3, cv2.GC_INIT_WITH_RECT)
+        use_hint = hint_mask is not None and mask_area_frac(hint_mask) > 0.0005
+        if use_hint:
+            # Elle bir GrabCut baslangic maskesi kuruyoruz: rect disi KESIN
+            # arka plan, rect ici OLASI on plan (eskisiyle ayni onyargi),
+            # hasar bolgesi ise (genisletilerek) KESIN on plan.
+            gc_mask = np.full((h, w), cv2.GC_BGD, np.uint8)
+            gc_mask[rect[1]: rect[1] + rect[3], rect[0]: rect[0] + rect[2]] = cv2.GC_PR_FGD
+            hm = cv2.resize(hint_mask, (w, h), interpolation=cv2.INTER_NEAREST)
+            k = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE, ((max(3, w // 15) | 1),) * 2
+            )
+            hm = cv2.dilate((hm > 127).astype(np.uint8), k)
+            gc_mask[hm > 0] = cv2.GC_FGD
+            cv2.grabCut(small, gc_mask, None, bgd, fgd, 3, cv2.GC_INIT_WITH_MASK)
+        else:
+            gc_mask = np.zeros((h, w), np.uint8)
+            cv2.grabCut(small, gc_mask, rect, bgd, fgd, 3, cv2.GC_INIT_WITH_RECT)
         out = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), MASK_FG, 0)
         out = out.astype(np.uint8)
         if mask_area_frac(out) > 0.05:
@@ -243,6 +273,122 @@ def vehicle_region(image_bgr: np.ndarray, *, max_dim: int = GRABCUT_MAX_DIM) -> 
     fallback = np.zeros((H, W), np.uint8)
     fallback[int(H * 0.2) : int(H * 0.8), int(W * 0.2) : int(W * 0.8)] = MASK_FG
     return fallback
+
+
+def shape_is_rectangular(mask: np.ndarray, extent_thresh: float = 0.92) -> bool:
+    """Maskenin bir dikdortgene ne kadar yakin oldugunu olcer.
+
+    NEDEN (W3 gozle denetim, dataset_card kolajlari): `vehicle_region`
+    yakin cekim goruntulerde (arac cerceveyi doldurunca anlamli bir
+    on/arka plan ayrimi bulunamiyor) ya dogrudan fallback'e (merkez %60
+    dikdortgen, yukarida) duser ya da GrabCut'in kendisi ROI dikdortgenine
+    yakin, yetersiz converge olmus bir sonuc uretir. Ikisi de ayni
+    belirtiyi verir: neredeyse tam dikdortgen bir maske.
+
+    Boyle bir maske `bg_replace`'te ZEMIN GERCEGI olarak diske yazilirsa
+    iki sorun cikar: (1) gercekci degildir -- olay yeri degistirme
+    senaryosunda arac govdesinin bir parcasinin (far, tampon) "arka plan"
+    sayilip degistirilmesi anlamsizdir; (2) modul docstring'inin (dosya
+    basi) kendi uyardigi seyi yapar: "dikdortgen maske -> model kenarlari
+    ezberler -> sahte yuksek performans".
+
+    extent = kontur alani / sinirlayici dikdortgen alani. Organik bir
+    arac siluetinde bu deger tipik olarak 0.5-0.85 arasindadir; neredeyse
+    tam bir dikdortgende 0.92'nin uzerine cikar. Esik, W3'te gozle
+    dogrulanan bozuk bir orneğin (cardd_003639_bg_replace, dumduz bir
+    dikdortgen) extent'i referans alinarak secildi.
+    """
+    contours, _ = cv2.findContours(
+        (mask > 127).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if not contours:
+        return False
+    c = max(contours, key=cv2.contourArea)
+    area = cv2.contourArea(c)
+    _, _, w, h = cv2.boundingRect(c)
+    if w * h == 0:
+        return False
+    return (area / (w * h)) > extent_thresh
+
+
+def color_transfer(
+    src_bgr: np.ndarray,
+    src_mask: np.ndarray,
+    ref_bgr: np.ndarray,
+    ref_mask: np.ndarray,
+    *,
+    strength: float = 0.85,
+) -> np.ndarray:
+    """Bir yamanin genel renk istatistigini hedefin yerel rengine yaklastirir
+    (Reinhard 2001, Lab uzayinda ortalama/std eslemesi).
+
+    NEDEN (W3 gozle denetim): `cv2.seamlessClone` yalnizca SINIRDAN ic
+    bolgeye dogru renk sizdirir; buyuk/dokulu yamalarda merkez rengi
+    olduğu gibi kalir (orn. gri bir tampon parcasi kirmizi bir govdeye
+    yapistirilinca ortasi hala gri kalir -- diag_splice.py bunu dE
+    olarak olctu). Duz alfa harmanlamada ise HIC degismez. Bu fonksiyon
+    harmanlamadan ONCE yamanin renk istatistigini hedefe esitler, boylece
+    hem seamless hem alfa modu makul bir baslangictan basliyor -- ikisi
+    arasindaki forensic iz farki (plan 4.5) bozulmaz, sadece "iki farkli
+    arabanin rengi" gibi bariz bir tutarsizlik once giderilir.
+
+    src_mask: yamanin kendisi (hangi pikseller donusturulecek)
+    ref_mask: hedefte yapistirma bolgesinin HEMEN CEVRESI (renk hedefi).
+              Ayni goruntunun kendisi de olabilir (copy_move: kaynak ve
+              hedef ayni foto, renk zaten yakin -- fonksiyon o durumda
+              da zararsizdir, sadece hafif bir duzeltme yapar).
+
+    strength<1.0: tam esitleme yamanin doku/hasar detayini silebilir;
+    0.85 renk uyumunu buyuk olcude duzeltirken dokuyu byuk olcude korur.
+    Olcum icin yetersiz piksel varsa (kucuk maske) DOKUNMADAN doner --
+    az veriyle hesaplanan ortalama/std gurultulu olur.
+    """
+    m = src_mask > 127
+    rm = ref_mask > 127
+    if m.sum() < 20 or rm.sum() < 20:
+        return src_bgr
+
+    src_lab = cv2.cvtColor(src_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    ref_lab = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+
+    s_mean, s_std = src_lab[m].mean(axis=0), src_lab[m].std(axis=0) + 1e-6
+    r_mean, r_std = ref_lab[rm].mean(axis=0), ref_lab[rm].std(axis=0) + 1e-6
+
+    scaled = (src_lab - s_mean) * (r_std / s_std) + r_mean
+    out_lab = src_lab.copy()
+    out_lab[m] = src_lab[m] * (1 - strength) + scaled[m] * strength
+    out_lab = np.clip(out_lab, 0, 255).astype(np.uint8)
+    return cv2.cvtColor(out_lab, cv2.COLOR_LAB2BGR)
+
+
+def color_consistency_de(img_bgr: np.ndarray, mask: np.ndarray,
+                          ring_inner: int = 6, ring_outer: int = 26) -> float | None:
+    """Maske icinin, onu cevreleyen halkaya Lab uzaklıgi (kabaca dE).
+
+    `color_transfer` sonrasi bir DOGRULAMA kapisi olarak kullanilir:
+    renk transferi/harmanlama basarisiz kaldiysa (orn. cv2.seamlessClone
+    yamanin dokusunu bastirdiginda, ya da maske cok kucuk/parcali oldugunda)
+    bunu yakalar. Ayni mantik diag_splice.py'de uretim SONRASI teshis
+    icin kullanilmisti; burada uretim SIRASINDA bir kabul kapisi olarak
+    tekrar kullaniliyor -- bkz. classic_manip.MAX_COLOR_DE.
+
+    Doner: dE (0 = kusursuz uyum, 25+ = alakasiz renk) ya da olcum icin
+    yetersiz piksel varsa None.
+    """
+    k_in = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ring_inner * 2 + 1,) * 2)
+    k_out = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ring_outer * 2 + 1,) * 2)
+    inner = (mask > 127).astype(np.uint8)
+    ring = (cv2.dilate(inner, k_out) - cv2.dilate(inner, k_in)).clip(0, 1)
+    if inner.sum() < 50 or ring.sum() < 50:
+        return None
+
+    lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    lab[..., 0] *= 100.0 / 255.0
+    lab[..., 1] -= 128.0
+    lab[..., 2] -= 128.0
+    a = lab[inner.astype(bool)].mean(axis=0)
+    b = lab[ring.astype(bool)].mean(axis=0)
+    return float(np.linalg.norm(a - b))
 
 
 def sample_point_in(mask: np.ndarray, rng: np.random.Generator) -> tuple[int, int] | None:
