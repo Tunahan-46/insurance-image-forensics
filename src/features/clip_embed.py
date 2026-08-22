@@ -89,6 +89,21 @@ def load_clip(model_name: str = DEFAULT_MODEL, device: str = "cuda"):
 # Cikarma
 # ---------------------------------------------------------------------------
 
+def _read_rgb(path: str | Path):
+    """Unicode-guvenli okuma + RGB'ye cevirme.
+
+    cv2.imread DOGRUDAN cagrilmaz: proje yolu 'Masaustu' iceriyor ve OpenCV
+    Windows'ta ASCII disi yollari okuyamiyor (bkz. src/data/imageio.py)."""
+    import cv2
+
+    from src.data.imageio import imread
+
+    bgr = imread(path)
+    if bgr is None:
+        return None
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+
 def _image_embeds(model, inputs):
     """CLIP goruntu embedding'ini SURUM BAGIMSIZ sekilde alir.
 
@@ -96,13 +111,17 @@ def _image_embeds(model, inputs):
     ------------------------
     `CLIPModel.get_image_features()` uzun sure duz bir tensor donduruyordu.
     Yeni transformers surumlerinde ayni cagri, tensor yerine bir cikti
-    NESNESI donduruyor. Kaggle notebook'u `pip install transformers` ile
-    HER ZAMAN en son surumu kurdugu icin bu, ortamdan ortama degisen ve
-    sessizce geri gelebilecek bir kirilma noktasi.
+    NESNESI donduruyor:
+
+        AttributeError: 'BaseModelOutputWithPooling' object has no attribute 'detach'
+
+    Kaggle notebook'u `pip install transformers` ile HER ZAMAN en son surumu
+    kurdugu icin bu, ortamdan ortama degisen ve sessizce geri gelebilecek bir
+    kirilma noktasi.
 
     NEDEN ALAN ADINA DEGIL BOYUTA BAKILIYOR
     ---------------------------------------
-    Ilk denemede "pooler_output varsa visual_projection uygula" kuralini
+    Ilk duzeltmede "pooler_output varsa visual_projection uygula" kuralini
     yazdik ve patladi:
 
         RuntimeError: mat1 and mat2 shapes cannot be multiplied
@@ -111,13 +130,11 @@ def _image_embeds(model, inputs):
     Cunku bu surumde `pooler_output` ZATEN 768 -- projeksiyon coktan
     uygulanmis. (ViT-L/14'un ham gorsel havuz ciktisi 1024'tur; 768 gormek
     projeksiyonun gectiginin kanitidir.) Alan ADI hangi asamada oldugumuzu
-    soylemiyor, BOYUT soyluyor. O yuzden kural artik sudur:
+    soylemiyor, BOYUT soyluyor. Kural:
 
-        boyut == 768   -> hazir, dokunma
-        boyut == visual_projection.in_features -> projeksiyonu uygula
-        digeri         -> dur, tahmin etme
-
-    Bu sekilde alan adlari surumden surume degisse bile mantik ayakta kalir.
+        boyut == 768                            -> hazir, dokunma
+        boyut == visual_projection.in_features   -> projeksiyonu uygula
+        digeri                                   -> dur, tahmin etme
     """
     import torch
 
