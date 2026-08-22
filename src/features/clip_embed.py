@@ -89,6 +89,57 @@ def load_clip(model_name: str = DEFAULT_MODEL, device: str = "cuda"):
 # Cikarma
 # ---------------------------------------------------------------------------
 
+def _image_embeds(model, inputs):
+    """CLIP goruntu embedding'ini SURUM BAGIMSIZ sekilde alir.
+
+    NEDEN BU SARMALAYICI VAR
+    ------------------------
+    `CLIPModel.get_image_features()` uzun sure duz bir tensor donduruyordu.
+    Yeni transformers surumlerinde ayni cagri, tensor yerine bir cikti
+    NESNESI (BaseModelOutputWithPooling) donduruyor ve kod
+
+        AttributeError: 'BaseModelOutputWithPooling' object has no attribute 'detach'
+
+    ile patliyor. Kaggle notebook'u `pip install transformers` ile HER ZAMAN
+    en son surumu kurdugu icin bu, ortamdan ortama degisen ve sessizce geri
+    gelebilecek bir kirilma noktasi. Surumu sabitlemek yerine ciktinin
+    kendisine bakiyoruz -- boylece hem eski hem yeni surumde calisir.
+
+    Uc olasi donus bicimi ele aliniyor:
+      1. Duz tensor                 -> dogrudan kullan (eski davranis)
+      2. .image_embeds tasiyan nesne -> projeksiyon zaten uygulanmis
+      3. .pooler_output tasiyan nesne -> projeksiyon UYGULANMAMIS; ViT-L/14'un
+         1024-d havuz ciktisini visual_projection ile 768'e indirmek BIZE
+         dusuyor. Bu adim atlanirsa sessizce yanlis boyutlu (ve yanlis
+         uzaydaki) vektorler yazilirdi -- asagidaki boyut kontrolu bunu
+         imkansiz kilar.
+    """
+    import torch
+
+    out = model.get_image_features(**inputs)
+
+    if torch.is_tensor(out):
+        feats = out
+    elif getattr(out, "image_embeds", None) is not None:
+        feats = out.image_embeds
+    elif getattr(out, "pooler_output", None) is not None:
+        feats = model.visual_projection(out.pooler_output)
+    else:
+        raise TypeError(
+            f"CLIP ciktisi taninmadi: {type(out)}. "
+            "transformers surumu bir kez daha degismis olabilir."
+        )
+
+    # SESSIZ HATA KAPISI: yanlis boyutlu embedding, E3'te anlamsiz ama
+    # 'calisir gorunen' sonuclar uretirdi. Burada durmasi tercih edilir.
+    if feats.shape[-1] != EMBED_DIM:
+        raise ValueError(
+            f"Beklenen embedding boyutu {EMBED_DIM}, gelen {feats.shape[-1]}. "
+            "Yanlis model ya da eksik projeksiyon."
+        )
+    return feats
+
+
 def _read_rgb(path: str | Path):
     """Unicode-guvenli okuma + RGB'ye cevirme.
 
@@ -168,7 +219,7 @@ def embed_paths(
 
             inputs = proc(images=imgs, return_tensors="pt").to(device)
             with torch.no_grad():
-                feats = model.get_image_features(**inputs)
+                feats = _image_embeds(model, inputs)
             vecs[row:row + len(imgs)] = feats.detach().cpu().numpy().astype(np.float32)
             kept_ids.extend(ok_ids)
             row += len(imgs)
