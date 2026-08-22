@@ -96,23 +96,28 @@ def _image_embeds(model, inputs):
     ------------------------
     `CLIPModel.get_image_features()` uzun sure duz bir tensor donduruyordu.
     Yeni transformers surumlerinde ayni cagri, tensor yerine bir cikti
-    NESNESI (BaseModelOutputWithPooling) donduruyor ve kod
+    NESNESI donduruyor. Kaggle notebook'u `pip install transformers` ile
+    HER ZAMAN en son surumu kurdugu icin bu, ortamdan ortama degisen ve
+    sessizce geri gelebilecek bir kirilma noktasi.
 
-        AttributeError: 'BaseModelOutputWithPooling' object has no attribute 'detach'
+    NEDEN ALAN ADINA DEGIL BOYUTA BAKILIYOR
+    ---------------------------------------
+    Ilk denemede "pooler_output varsa visual_projection uygula" kuralini
+    yazdik ve patladi:
 
-    ile patliyor. Kaggle notebook'u `pip install transformers` ile HER ZAMAN
-    en son surumu kurdugu icin bu, ortamdan ortama degisen ve sessizce geri
-    gelebilecek bir kirilma noktasi. Surumu sabitlemek yerine ciktinin
-    kendisine bakiyoruz -- boylece hem eski hem yeni surumde calisir.
+        RuntimeError: mat1 and mat2 shapes cannot be multiplied
+                      (64x768 and 1024x768)
 
-    Uc olasi donus bicimi ele aliniyor:
-      1. Duz tensor                 -> dogrudan kullan (eski davranis)
-      2. .image_embeds tasiyan nesne -> projeksiyon zaten uygulanmis
-      3. .pooler_output tasiyan nesne -> projeksiyon UYGULANMAMIS; ViT-L/14'un
-         1024-d havuz ciktisini visual_projection ile 768'e indirmek BIZE
-         dusuyor. Bu adim atlanirsa sessizce yanlis boyutlu (ve yanlis
-         uzaydaki) vektorler yazilirdi -- asagidaki boyut kontrolu bunu
-         imkansiz kilar.
+    Cunku bu surumde `pooler_output` ZATEN 768 -- projeksiyon coktan
+    uygulanmis. (ViT-L/14'un ham gorsel havuz ciktisi 1024'tur; 768 gormek
+    projeksiyonun gectiginin kanitidir.) Alan ADI hangi asamada oldugumuzu
+    soylemiyor, BOYUT soyluyor. O yuzden kural artik sudur:
+
+        boyut == 768   -> hazir, dokunma
+        boyut == visual_projection.in_features -> projeksiyonu uygula
+        digeri         -> dur, tahmin etme
+
+    Bu sekilde alan adlari surumden surume degisse bile mantik ayakta kalir.
     """
     import torch
 
@@ -120,39 +125,36 @@ def _image_embeds(model, inputs):
 
     if torch.is_tensor(out):
         feats = out
-    elif getattr(out, "image_embeds", None) is not None:
-        feats = out.image_embeds
-    elif getattr(out, "pooler_output", None) is not None:
-        feats = model.visual_projection(out.pooler_output)
     else:
-        raise TypeError(
-            f"CLIP ciktisi taninmadi: {type(out)}. "
-            "transformers surumu bir kez daha degismis olabilir."
-        )
+        feats = None
+        for name in ("image_embeds", "pooler_output", "last_hidden_state"):
+            cand = getattr(out, name, None)
+            if cand is None:
+                continue
+            if cand.ndim == 3:  # (B, token, dim) -> CLS token
+                cand = cand[:, 0]
+            feats = cand
+            break
+        if feats is None:
+            raise TypeError(
+                f"CLIP ciktisi taninmadi: {type(out)}. "
+                "transformers surumu bir kez daha degismis olabilir."
+            )
+
+    # Projeksiyon gerekiyorsa -- ve YALNIZCA gerekiyorsa -- uygula.
+    if feats.shape[-1] != EMBED_DIM:
+        proj = getattr(model, "visual_projection", None)
+        if proj is not None and feats.shape[-1] == proj.in_features:
+            feats = proj(feats)
 
     # SESSIZ HATA KAPISI: yanlis boyutlu embedding, E3'te anlamsiz ama
     # 'calisir gorunen' sonuclar uretirdi. Burada durmasi tercih edilir.
     if feats.shape[-1] != EMBED_DIM:
         raise ValueError(
             f"Beklenen embedding boyutu {EMBED_DIM}, gelen {feats.shape[-1]}. "
-            "Yanlis model ya da eksik projeksiyon."
+            "Yanlis model ya da beklenmedik cikti bicimi."
         )
     return feats
-
-
-def _read_rgb(path: str | Path):
-    """Unicode-guvenli okuma + RGB'ye cevirme.
-
-    cv2.imread DOGRUDAN cagrilmaz: proje yolu 'Masaustu' iceriyor ve OpenCV
-    Windows'ta ASCII disi yollari okuyamiyor (bkz. src/data/imageio.py)."""
-    import cv2
-
-    from src.data.imageio import imread
-
-    bgr = imread(path)
-    if bgr is None:
-        return None
-    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
 
 def embed_paths(
